@@ -191,6 +191,14 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
 .sheet .preview { border: 1px solid var(--line); border-radius: 8px; }
 .sheet .preview th, .sheet .preview td { padding: 8px 10px; }
 .sheet .preview input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.chip.tipped { border: 0; font-family: inherit; cursor: help; }
+.chip.tipped::after { content: "?"; display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid currentColor; font-size: .65rem; font-weight: 700; }
+.tip { position: fixed; z-index: 40; background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 12px 14px; font-size: .85rem; width: max-content; max-width: min(380px, calc(100vw - 24px)); display: grid; gap: 8px; }
+.tip p { margin: 0; font-weight: 600; }
+.tip table { font-size: .82rem; }
+.tip th, .tip td { padding: 5px 8px; }
+.tip .credit { color: var(--warn); font-weight: 700; }
+.tip .why { color: var(--muted); font-size: .8rem; }
 .pay-total { display: flex; justify-content: space-between; align-items: baseline; background: var(--primary-soft); border-radius: 8px; padding: 10px 12px; font-weight: 600; }
 .pay-total strong { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
 .toast { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 11px 20px; border-radius: 10px; font-weight: 600; z-index: 30; max-width: calc(100% - 32px); box-shadow: var(--shadow-lg); }
@@ -320,6 +328,7 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
 <div class="overlay" id="overlay" hidden><form class="sheet" id="sheet" novalidate autocomplete="off"></form></div>
 <datalist id="clients-dl"></datalist>
 <div class="toast" id="toast" hidden></div>
+<div class="tip" id="tip" role="tooltip" hidden></div>
 
 <script type="module">
 import { firebaseConfig } from "./firebase-config.js";
@@ -579,7 +588,7 @@ function renderClients() {
   let tn = 0, tp = 0, tb = 0;
   const body = list.map((a) => {
     tn += a.n; tp += a.paid; tb += Math.max(a.bal, 0);
-    const chip = a.n === 0 ? `<span class="chip none">עוד לא נרשמו טיפולים</span>` : a.bal > 0 ? `<span class="chip bad">חוב ${money(a.bal)}</span>` : a.bal < 0 ? `<span class="chip warn">זכות ${money(-a.bal)}</span>` : `<span class="chip ok">מאוזן</span>`;
+    const chip = a.n === 0 ? `<span class="chip none">עוד לא נרשמו טיפולים</span>` : a.bal > 0 ? `<button type="button" class="chip bad tipped" data-tip-client="${esc(a.c.id)}">חוב ${money(a.bal)}</button>` : a.bal < 0 ? `<button type="button" class="chip warn tipped" data-tip-client="${esc(a.c.id)}">זכות ${money(-a.bal)}</button>` : `<span class="chip ok">מאוזן</span>`;
     return `<tr>
       <td><button class="linkish" type="button" data-act="open-client" data-name="${esc(a.c.name)}">${esc(a.c.name)}</button></td>
       <td class="code">${esc(a.c.code)}</td>
@@ -754,6 +763,35 @@ function treatmentSheet(t) {
     armDelete($("f-del"), async () => { try { await remove("treatments", t.id); closeSheet(); toast("הטיפול נמחק"); } catch (e) { writeError(e); } });
   });
 }
+
+/* ---------- balance explanation tooltip ---------- */
+function balanceTipHtml(clientId) {
+  const c = state.clients.get(clientId);
+  const ts = [...state.treatments.values()].filter((t) => t.clientId === clientId && calc(t).bal !== 0)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const total = ts.reduce((s, t) => s + calc(t).bal, 0);
+  const head = total > 0
+    ? `ל${esc(c.name)} יש חוב של ${money(total)} על ${ts.length === 1 ? "טיפול אחד שלא שולם" : ts.length + " טיפולים שלא שולמו"} במלואם:`
+    : `${esc(c.name)} שילם ${money(-total)} יותר מעלות הטיפולים, בטיפולים האלה:`;
+  const rows = ts.map((t) => { const k = calc(t); return `<tr><td class="num">${fmtDate(t.date)}</td><td class="n">${money(k.cost)}</td><td class="n">${money(k.paid)}</td>
+    <td class="n ${k.bal > 0 ? "bal-pos" : "credit"}">${k.bal > 0 ? "חסר " + money(k.bal) : "עודף " + money(-k.bal)}</td></tr>`; }).join("");
+  const why = total > 0 ? "כדי לסגור את החוב לחצו \"רישום תשלום\"." : "אם העודף נרשם בטעות, תקנו את \"סכום ששולם\" בעריכת הטיפול (כפתור \"עריכה\" בלשונית טיפולים).";
+  return `<p>${head}</p><table><thead><tr><th>תאריך טיפול</th><th class="n">עלות</th><th class="n">שולם</th><th class="n">הפרש</th></tr></thead><tbody>${rows}</tbody></table><span class="why">${why}</span>`;
+}
+function showTip(el) {
+  const tip = $("tip");
+  tip.innerHTML = balanceTipHtml(el.dataset.tipClient); tip.hidden = false;
+  const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  let left = Math.min(Math.max(12, r.right - w), innerWidth - w - 12);
+  let top = r.bottom + 8; if (top + h > innerHeight - 12) top = Math.max(12, r.top - h - 8);
+  tip.style.left = left + "px"; tip.style.top = top + "px";
+}
+const hideTip = () => { $("tip").hidden = true; };
+document.addEventListener("mouseover", (e) => { const el = e.target.closest("[data-tip-client]"); if (el) showTip(el); });
+document.addEventListener("mouseout", (e) => { if (e.target.closest("[data-tip-client]")) hideTip(); });
+document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-tip-client]"); if (el) showTip(el); else hideTip(); });
+document.addEventListener("focusout", (e) => { if (e.target.closest("[data-tip-client]")) hideTip(); });
+addEventListener("scroll", hideTip, true);
 
 // One payment covering several unpaid treatments: the amount is applied oldest treatment first.
 function paymentSheet(clientId) {
