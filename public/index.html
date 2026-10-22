@@ -189,6 +189,10 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
 .err { color: var(--bad); font-size: .88rem; font-weight: 600; }
 .sheet footer { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
 .sheet .preview { border: 1px solid var(--line); border-radius: 8px; }
+.sheet .preview th, .sheet .preview td { padding: 8px 10px; }
+.sheet .preview input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.pay-total { display: flex; justify-content: space-between; align-items: baseline; background: var(--primary-soft); border-radius: 8px; padding: 10px 12px; font-weight: 600; }
+.pay-total strong { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
 .toast { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 11px 20px; border-radius: 10px; font-weight: 600; z-index: 30; max-width: calc(100% - 32px); box-shadow: var(--shadow-lg); }
 
 @media (max-width: 1000px) {
@@ -541,7 +545,7 @@ function renderTreatments() {
       <td>${methodChip(t)}</td>
       <td class="n ${c.bal > 0 ? "bal-pos" : ""}">${c.bal > 0 ? money(c.bal) : '<span class="muted">—</span>'}</td>
       <td class="notes">${esc(t.notes || "")}</td>
-      <td><button class="btn small" type="button" data-act="edit-t" data-id="${esc(t.id)}">עריכה</button></td>
+      <td><div class="actions">${c.bal > 0 ? `<button class="btn small primary" type="button" data-act="pay" data-id="${esc(t.clientId)}">רישום תשלום</button>` : ""}<button class="btn small" type="button" data-act="edit-t" data-id="${esc(t.id)}">עריכה</button></div></td>
     </tr>`;
   }).join("");
   box.innerHTML = `<div class="scroll"><table>
@@ -585,7 +589,7 @@ function renderClients() {
       <td class="num">${a.last ? fmtDate(a.last) : '<span class="muted">—</span>'}</td>
       <td class="n">${money(a.paid)}</td>
       <td>${chip}</td>
-      <td><div class="actions"><button class="btn small" type="button" data-act="new-t-for" data-name="${esc(a.c.name)}">+ טיפול</button><button class="btn small" type="button" data-act="edit-c" data-id="${esc(a.c.id)}">עריכה</button></div></td>
+      <td><div class="actions">${a.bal > 0 ? `<button class="btn small primary" type="button" data-act="pay" data-id="${esc(a.c.id)}">רישום תשלום</button>` : ""}<button class="btn small" type="button" data-act="new-t-for" data-name="${esc(a.c.name)}">+ טיפול</button><button class="btn small" type="button" data-act="edit-c" data-id="${esc(a.c.id)}">עריכה</button></div></td>
     </tr>`;
   }).join("");
   box.innerHTML = `<div class="scroll"><table>
@@ -751,6 +755,62 @@ function treatmentSheet(t) {
   });
 }
 
+// One payment covering several unpaid treatments: the amount is applied oldest treatment first.
+function paymentSheet(clientId) {
+  const c = state.clients.get(clientId);
+  const open = [...state.treatments.values()].filter((t) => t.clientId === clientId && calc(t).bal > 0)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  if (!c || !open.length) { toast("אין למטופל טיפולים שלא שולמו"); return; }
+  const rows = open.map((t, i) => { const k = calc(t); return `<tr>
+      <td><input type="checkbox" id="p-t-${i}" checked aria-label="כולל טיפול מ-${fmtDate(t.date)}"></td>
+      <td class="num"><label for="p-t-${i}">${fmtDate(t.date)}</label></td>
+      <td class="n">${money(k.cost)}</td><td class="n">${k.paid ? money(k.paid) : "—"}</td><td class="n bal-pos">${money(k.bal)}</td></tr>`; }).join("");
+  openSheet(`
+    <header><h2>רישום תשלום · ${esc(c.name)}</h2><button class="btn small" type="button" data-close>סגירה</button></header>
+    <span class="muted" style="font-size:.88rem">סמנו את הטיפולים שהתשלום מכסה. כל הטיפולים שלא שולמו מסומנים מראש.</span>
+    <div class="scroll preview"><table>
+      <thead><tr><th></th><th>תאריך טיפול</th><th class="n">עלות</th><th class="n">שולם</th><th class="n">יתרה</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="pay-total"><span>חוב על הטיפולים שסומנו</span><strong id="p-due"></strong></div>
+    <div class="row2">
+      <div class="field"><label for="p-amount">סכום שהתקבל (₪)</label><input id="p-amount" type="number" inputmode="decimal" min="0" step="1"></div>
+      <div class="field"><label for="p-date">תאריך תשלום</label><input id="p-date" type="date" value="${today()}"></div>
+    </div>
+    <div class="field"><label for="p-method">סטטוס תשלום</label><select id="p-method"><option>${esc(M_INVOICE)}</option><option>${esc(M_NOINV)}</option></select></div>
+    <span class="muted" style="font-size:.85rem">אם הסכום קטן מהחוב, הוא ייזקף לטיפולים הישנים קודם, והיתרה תישאר פתוחה.</span>
+    <div class="err" id="p-err" hidden></div>
+    <footer><button class="btn primary" type="submit" id="p-go">רישום התשלום</button><button class="btn" type="button" data-close>ביטול</button></footer>
+  `, async () => {
+    const chosen = open.filter((_, i) => $("p-t-" + i).checked);
+    const due = chosen.reduce((s, t) => s + calc(t).bal, 0);
+    const amount = +$("p-amount").value || 0, date = $("p-date").value, method = $("p-method").value;
+    try {
+      if (!chosen.length) throw { user: "צריך לסמן לפחות טיפול אחד." };
+      if (amount <= 0) throw { user: "צריך להזין את הסכום שהתקבל.", field: "p-amount" };
+      if (amount > due) throw { user: `הסכום גבוה מהחוב על הטיפולים שסומנו (${money(due)}). סמנו עוד טיפולים או תקנו את הסכום.`, field: "p-amount" };
+      if (!date) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: "p-date" };
+    } catch (x) { showFormError("p-err", x); return; }
+    $("p-go").disabled = true;
+    let left = amount, count = 0;
+    try {
+      for (const t of chosen) {
+        if (left <= 0) break;
+        const k = calc(t), pay = Math.min(k.bal, left);
+        await put("treatments", t.id, { ...clean(t), paid: k.paid + pay, payDate: date, method });
+        left -= pay; count++;
+      }
+      closeSheet(); toast(`נרשם תשלום של ${money(amount)} עבור ${count} טיפולים`);
+    } catch (e) { writeError(e); $("p-go").disabled = false; }
+  }, () => {
+    const sync = () => {
+      const due = open.reduce((s, t, i) => s + ($("p-t-" + i).checked ? calc(t).bal : 0), 0);
+      $("p-due").textContent = money(due); $("p-amount").value = due || "";
+    };
+    open.forEach((_, i) => $("p-t-" + i).addEventListener("change", sync));
+    sync();
+  });
+}
+
 function clientSheet(c) {
   const isNew = !c; c = c || { code: nextCode() };
   const count = isNew ? 0 : [...state.treatments.values()].filter((t) => t.clientId === c.id).length;
@@ -903,6 +963,7 @@ document.addEventListener("click", (e) => {
   const act = b.dataset.act;
   if (act === "edit-t") treatmentSheet(state.treatments.get(b.dataset.id));
   else if (act === "edit-c") clientSheet(state.clients.get(b.dataset.id));
+  else if (act === "pay") paymentSheet(b.dataset.id);
   else if (act === "new-c") clientSheet(null);
   else if (act === "import") $("csv-file").click();
   else if (act === "new-t-for") {
