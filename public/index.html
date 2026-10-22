@@ -650,7 +650,7 @@ function renderMonths() {
 
 /* ---------- shared treatment logic (entry panel + edit sheet) ---------- */
 const methodOptions = (sel) => {
-  const opts = [`<option value="">לא צוין</option>`, ...METHODS.map((m) => `<option ${sel === m ? "selected" : ""}>${esc(m)}</option>`)];
+  const opts = [`<option value="" disabled ${sel ? "" : "selected"}>בחרו סטטוס…</option>`, ...METHODS.map((m) => `<option ${sel === m ? "selected" : ""}>${esc(m)}</option>`)];
   if (sel && !METHODS.includes(sel)) opts.push(`<option selected>${esc(sel)}</option>`);
   return opts.join("");
 };
@@ -694,6 +694,7 @@ async function saveTreatment(p, existing) {
   if (!nm) throw { user: "צריך למלא שם מטופל.", field: p + "-client" };
   if (!date) throw { user: "צריך למלא תאריך טיפול.", field: p + "-date" };
   const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value, payWay = $(p + "-payway").value;
+  if (!method) throw { user: "חסר סטטוס תשלום. בחרו אם הטיפול שולם (עם חשבונית או בלי) או לא שולם.", field: p + "-method" };
   if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו סטטוס תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
   if ((paid > 0 || (method && method !== M_UNPAID)) && !payDate) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: p + "-paydate" };
   if (paid > 0 && !payWay) throw { user: "חסר אופן תשלום. בחרו איך שולם: מזומן, ביט, פייבוקס או הפקדה בבנק.", field: p + "-payway" };
