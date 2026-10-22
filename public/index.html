@@ -639,10 +639,17 @@ const methodOptions = (sel) => {
 
 // p = id prefix ("q" for the entry panel, "f" for the edit sheet)
 function wireTreatmentFields(p) {
-  const hint = () => { const n = $(p + "-client").value.trim(); $(p + "-client-hint").textContent = n && !findClientByName(n) ? `מטופל חדש · יקבל קוד ${nextCode()}` : ""; };
+  const hint = () => {
+    const n = $(p + "-client").value.trim(), c = n && findClientByName(n);
+    $(p + "-client-hint").textContent = !n ? "" : !c ? `מטופל חדש · יקבל קוד ${nextCode()}` : c.price ? `מחיר קבוע: ${money(c.price)}` : "";
+  };
+  // Choosing a client always loads their fixed price; a paid amount that mirrored the old cost follows it.
   $(p + "-client").addEventListener("input", () => {
     hint(); const c = findClientByName($(p + "-client").value);
-    if (c && c.price && !$(p + "-cost").value) $(p + "-cost").value = c.price;
+    if (!c || !c.price) return;
+    const cost = $(p + "-cost"), paid = $(p + "-paid"), old = cost.value;
+    cost.value = c.price;
+    if (old !== "" && paid.value === old) paid.value = c.price;
   });
   $(p + "-method").addEventListener("change", () => {
     const m = $(p + "-method").value;
