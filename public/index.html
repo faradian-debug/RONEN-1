@@ -575,7 +575,7 @@ function renderClients() {
   let tn = 0, tp = 0, tb = 0;
   const body = list.map((a) => {
     tn += a.n; tp += a.paid; tb += Math.max(a.bal, 0);
-    const chip = a.bal > 0 ? `<span class="chip bad">חוב ${money(a.bal)}</span>` : a.bal < 0 ? `<span class="chip warn">זכות ${money(-a.bal)}</span>` : `<span class="chip ok">מאוזן</span>`;
+    const chip = a.n === 0 ? `<span class="chip none">עוד לא נרשמו טיפולים</span>` : a.bal > 0 ? `<span class="chip bad">חוב ${money(a.bal)}</span>` : a.bal < 0 ? `<span class="chip warn">זכות ${money(-a.bal)}</span>` : `<span class="chip ok">מאוזן</span>`;
     return `<tr>
       <td><button class="linkish" type="button" data-act="open-client" data-name="${esc(a.c.name)}">${esc(a.c.name)}</button></td>
       <td class="code">${esc(a.c.code)}</td>
