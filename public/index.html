@@ -691,14 +691,39 @@ async function saveTreatment(p, existing) {
   const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value;
   if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו סטטוס תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
   if ((paid > 0 || (method && method !== M_UNPAID)) && !payDate) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: p + "-paydate" };
+  const cost = +$(p + "-cost").value || 0;
   let client = findClientByName(nm);
+
+  // Paying more than this treatment costs settles the client's earlier unpaid treatments, oldest first.
+  let excess = paid - cost;
+  const spill = [];
+  if (excess > 0) {
+    const others = client ? [...state.treatments.values()]
+      .filter((t) => t.clientId === client.id && (!existing || t.id !== existing.id) && calc(t).bal > 0)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || "")) : [];
+    const owed = others.reduce((s, t) => s + calc(t).bal, 0);
+    if (excess > owed) throw {
+      user: owed
+        ? `הסכום ששולם גבוה ב-${money(excess - owed)} מכל מה שהמטופל חייב (הטיפול הזה ${money(cost)} ועוד ${money(owed)} מטיפולים קודמים). תקנו את הסכום ששולם.`
+        : `הסכום ששולם גבוה ב-${money(excess)} מעלות הטיפול, ואין למטופל טיפולים קודמים שלא שולמו. תקנו את הסכום ששולם.`,
+      field: p + "-paid",
+    };
+    for (const t of others) {
+      if (excess <= 0) break;
+      const k = calc(t), pay = Math.min(k.bal, excess);
+      spill.push({ t, paid: k.paid + pay }); excess -= pay;
+    }
+  }
+
   if (!client) {
-    client = { id: newId(), name: nm, code: nextCode(), phone: "", price: +$(p + "-cost").value || 0, notes: "" };
+    client = { id: newId(), name: nm, code: nextCode(), phone: "", price: cost, notes: "" };
     await put("clients", client.id, clean(client));
     state.clients.set(client.id, client);
   }
-  const data = { clientId: client.id, date, cost: +$(p + "-cost").value || 0, paid: +$(p + "-paid").value || 0, method: $(p + "-method").value, payDate: $(p + "-paydate").value, notes: $(p + "-notes").value.trim() };
+  const data = { clientId: client.id, date, cost, paid: spill.length ? cost : paid, method, payDate, notes: $(p + "-notes").value.trim() };
   await put("treatments", existing ? existing.id : newId(), data);
+  for (const s of spill) await put("treatments", s.t.id, { ...clean(s.t), paid: s.paid, payDate, method });
+  return spill.length ? `נרשם תשלום של ${money(paid)}: הטיפול הזה ועוד ${spill.length === 1 ? "טיפול קודם אחד" : spill.length + " טיפולים קודמים"} שלא שולמו` : null;
 }
 
 /* entry panel */
@@ -709,10 +734,10 @@ $("entry").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = $("q-err"), btn = $("q-submit"); err.hidden = true; btn.disabled = true;
   try {
-    await saveTreatment("q", null);
+    const msg = await saveTreatment("q", null);
     for (const id of ["q-client", "q-cost", "q-paid", "q-paydate", "q-notes"]) $(id).value = "";
     $("q-method").value = ""; entryHint();
-    toast("הטיפול נרשם ביומן");
+    toast(msg || "הטיפול נרשם ביומן", msg ? 5000 : 2600);
     $("q-client").focus();
   } catch (x) {
     if (x && x.user) showFormError("q-err", x); else writeError(x);
@@ -756,7 +781,7 @@ function treatmentSheet(t) {
     <div class="err" id="f-err" hidden></div>
     <footer><button class="btn primary" type="submit">שמירת שינויים</button><button class="btn danger" type="button" id="f-del">מחיקת הטיפול</button></footer>
   `, async () => {
-    try { await saveTreatment("f", t); closeSheet(); toast("השינויים נשמרו"); }
+    try { const msg = await saveTreatment("f", t); closeSheet(); toast(msg || "השינויים נשמרו", msg ? 5000 : 2600); }
     catch (x) { if (x && x.user) showFormError("f-err", x); else writeError(x); }
   }, () => {
     wireTreatmentFields("f");
