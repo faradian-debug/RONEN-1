@@ -143,7 +143,10 @@ main.container { display: grid; gap: 20px; padding-block: 24px 64px; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 .field textarea { min-height: 72px; resize: vertical; }
 .field .hint { font-size: .78rem; color: var(--primary); min-height: 1em; }
-.entry-msg { grid-column: 1 / -1; font-size: .88rem; font-weight: 600; color: var(--bad); }
+.entry-msg { grid-column: 1 / -1; }
+.warnbox { display: flex; gap: 8px; align-items: flex-start; background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); border-radius: 8px; padding: 10px 12px; font-size: .9rem; font-weight: 600; }
+.warnbox::before { content: "!"; flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--bad); color: var(--surface); display: grid; place-items: center; font-weight: 800; font-size: .8rem; }
+.field .invalid, .field .invalid:focus { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
 
 /* toolbar + table */
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
@@ -650,9 +653,24 @@ function wireTreatmentFields(p) {
   return hint;
 }
 
+// Shows a validation warning in the form and marks the offending field.
+function showFormError(errId, x) {
+  const err = $(errId);
+  document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));
+  err.textContent = x.user; err.className = (err.className.replace(/\bwarnbox\b/, "") + " warnbox").trim(); err.hidden = false;
+  if (x.field) {
+    const el = $(x.field); el.classList.add("invalid"); el.focus();
+    el.addEventListener("input", () => { el.classList.remove("invalid"); err.hidden = true; }, { once: true });
+  }
+}
+
 async function saveTreatment(p, existing) {
   const nm = $(p + "-client").value.trim(), date = $(p + "-date").value;
-  if (!nm || !date) throw { user: "צריך למלא שם מטופל ותאריך טיפול." };
+  if (!nm) throw { user: "צריך למלא שם מטופל.", field: p + "-client" };
+  if (!date) throw { user: "צריך למלא תאריך טיפול.", field: p + "-date" };
+  const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value;
+  if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו אמצעי תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
+  if ((paid > 0 || (method && method !== M_UNPAID)) && !payDate) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: p + "-paydate" };
   let client = findClientByName(nm);
   if (!client) {
     client = { id: newId(), name: nm, code: nextCode(), phone: "", price: +$(p + "-cost").value || 0, notes: "" };
@@ -677,7 +695,7 @@ $("entry").addEventListener("submit", async (e) => {
     toast("הטיפול נרשם ביומן");
     $("q-client").focus();
   } catch (x) {
-    if (x && x.user) { err.textContent = x.user; err.hidden = false; } else writeError(x);
+    if (x && x.user) showFormError("q-err", x); else writeError(x);
   } finally { btn.disabled = false; }
 });
 
@@ -719,7 +737,7 @@ function treatmentSheet(t) {
     <footer><button class="btn primary" type="submit">שמירת שינויים</button><button class="btn danger" type="button" id="f-del">מחיקת הטיפול</button></footer>
   `, async () => {
     try { await saveTreatment("f", t); closeSheet(); toast("השינויים נשמרו"); }
-    catch (x) { if (x && x.user) { $("f-err").textContent = x.user; $("f-err").hidden = false; } else writeError(x); }
+    catch (x) { if (x && x.user) showFormError("f-err", x); else writeError(x); }
   }, () => {
     wireTreatmentFields("f");
     armDelete($("f-del"), async () => { try { await remove("treatments", t.id); closeSheet(); toast("הטיפול נמחק"); } catch (e) { writeError(e); } });
