@@ -598,7 +598,7 @@ function renderClients() {
       <td class="num">${a.last ? fmtDate(a.last) : '<span class="muted">—</span>'}</td>
       <td class="n">${money(a.paid)}</td>
       <td>${chip}</td>
-      <td><div class="actions">${a.bal > 0 ? `<button class="btn small primary" type="button" data-act="pay" data-id="${esc(a.c.id)}">רישום תשלום</button>` : ""}<button class="btn small" type="button" data-act="new-t-for" data-name="${esc(a.c.name)}">+ טיפול</button><button class="btn small" type="button" data-act="edit-c" data-id="${esc(a.c.id)}">עריכה</button></div></td>
+      <td><div class="actions">${a.bal > 0 ? `<button class="btn small primary" type="button" data-act="pay" data-id="${esc(a.c.id)}">רישום תשלום</button>` : ""}<button class="btn small" type="button" data-act="new-t-for" data-name="${esc(a.c.name)}">+ טיפול</button><button class="btn small" type="button" data-act="edit-c" data-id="${esc(a.c.id)}">עריכה</button><button class="btn small danger" type="button" data-act="del-c" data-id="${esc(a.c.id)}">מחיקה</button></div></td>
     </tr>`;
   }).join("");
   box.innerHTML = `<div class="scroll"><table>
@@ -874,6 +874,28 @@ function paymentSheet(clientId) {
   });
 }
 
+// Deleting a client also deletes their treatments, so the window spells out what will disappear.
+function deleteClientSheet(clientId) {
+  const c = state.clients.get(clientId); if (!c) return;
+  const ts = [...state.treatments.values()].filter((t) => t.clientId === clientId);
+  const paid = ts.reduce((s, t) => s + calc(t).paid, 0), bal = ts.reduce((s, t) => s + calc(t).bal, 0);
+  openSheet(`
+    <header><h2>מחיקת ${esc(c.name)}</h2><button class="btn small" type="button" data-close>סגירה</button></header>
+    ${ts.length ? `<div class="warnbox">ימחקו גם ${ts.length === 1 ? "הטיפול שלו" : `כל ${ts.length} הטיפולים שלו`}, כולל תשלומים של ${money(paid)}${bal > 0 ? ` וחוב פתוח של ${money(bal)}` : ""}. הסכומים ייעלמו גם מהסיכומים ומהסיכום החודשי.</div>
+      <span class="muted" style="font-size:.88rem">אי אפשר לבטל מחיקה. אם תרצו לשמור עותק, לחצו קודם "ייצוא CSV" בלשונית טיפולים.</span>`
+      : `<span class="muted">למטופל אין טיפולים ביומן. אי אפשר לבטל מחיקה.</span>`}
+    <footer><button class="btn danger" type="button" id="d-go">מחיקת המטופל${ts.length ? " והטיפולים" : ""}</button><button class="btn" type="button" data-close>ביטול</button></footer>
+  `, () => {}, () => {
+    armDelete($("d-go"), async () => {
+      try {
+        for (const t of ts) await remove("treatments", t.id);
+        await remove("clients", clientId);
+        closeSheet(); toast(`${c.name} נמחק`);
+      } catch (e) { writeError(e); $("d-go").disabled = false; }
+    });
+  });
+}
+
 function clientSheet(c) {
   const isNew = !c; c = c || { code: nextCode() };
   const count = isNew ? 0 : [...state.treatments.values()].filter((t) => t.clientId === c.id).length;
@@ -888,7 +910,6 @@ function clientSheet(c) {
     <div class="field"><label for="c-notes">הערות</label><textarea id="c-notes">${esc(c.notes || "")}</textarea></div>
     <div class="err" id="c-err" hidden></div>
     <footer><button class="btn primary" type="submit">${isNew ? "הוספת מטופל" : "שמירת שינויים"}</button>${isNew ? "" : '<button class="btn danger" type="button" id="c-del">מחיקת המטופל</button>'}</footer>
-    ${!isNew && count ? `<span class="muted" style="font-size:.85rem">למטופל ${count} טיפולים ביומן. כדי למחוק אותו צריך קודם למחוק את הטיפולים שלו.</span>` : ""}
   `, async () => {
     const name = $("c-name").value.trim(), err = $("c-err");
     if (!name) { err.textContent = "צריך למלא שם."; err.hidden = false; return; }
@@ -899,7 +920,7 @@ function clientSheet(c) {
     catch (e) { writeError(e); }
   }, () => {
     const del = $("c-del");
-    if (del) { if (count) del.disabled = true; else armDelete(del, async () => { try { await remove("clients", c.id); closeSheet(); toast("המטופל נמחק"); } catch (e) { writeError(e); } }); }
+    if (del) del.onclick = () => deleteClientSheet(c.id);
   });
 }
 
@@ -1027,6 +1048,7 @@ document.addEventListener("click", (e) => {
   if (act === "edit-t") treatmentSheet(state.treatments.get(b.dataset.id));
   else if (act === "edit-c") clientSheet(state.clients.get(b.dataset.id));
   else if (act === "pay") paymentSheet(b.dataset.id);
+  else if (act === "del-c") deleteClientSheet(b.dataset.id);
   else if (act === "new-c") clientSheet(null);
   else if (act === "import") $("csv-file").click();
   else if (act === "new-t-for") {
