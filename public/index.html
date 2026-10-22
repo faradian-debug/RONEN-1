@@ -109,6 +109,8 @@ button:disabled { cursor: default; opacity: .55; }
 
 /* page */
 main.container { display: grid; gap: 20px; padding-block: 24px 64px; }
+/* Grid items default to min-width:auto, which lets a wide table stretch the page; keep wide tables scrolling inside their card. */
+main.container > *, .view > div > * { min-width: 0; }
 .page-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
 .page-head h1 { font-size: 1.6rem; }
 .page-head p { margin: 2px 0 0; color: var(--muted); }
@@ -133,9 +135,8 @@ main.container { display: grid; gap: 20px; padding-block: 24px 64px; }
 .card-head .sub { color: var(--muted); font-size: .85rem; font-weight: 400; margin-inline-start: 8px; }
 
 /* entry panel */
-.entry { padding: 16px 18px 18px; display: grid; grid-template-columns: 2fr 1.2fr 1fr 1.6fr 1fr 1.2fr; gap: 12px 14px; align-items: end; }
-.entry .notes-f { grid-column: 1 / span 5; }
-.entry .submit-f { grid-column: 6; }
+.entry { padding: 16px 18px 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 14px; align-items: end; }
+.entry .submit-f { grid-column: 4; }
 .entry .submit-f .btn { width: 100%; padding-block: 10px; }
 .field { display: grid; gap: 5px; min-width: 0; }
 .field label { font-size: .8rem; font-weight: 600; color: var(--muted); }
@@ -205,9 +206,8 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
 
 @media (max-width: 1000px) {
   .kpis { grid-template-columns: repeat(2, 1fr); }
-  .entry { grid-template-columns: repeat(3, 1fr); }
-  .entry .notes-f { grid-column: 1 / span 2; }
-  .entry .submit-f { grid-column: 3; }
+  .entry { grid-template-columns: repeat(2, 1fr); }
+  .entry .submit-f { grid-column: 2; }
 }
 @media (max-width: 640px) {
   .topbar .container { gap: 8px 16px; padding-block: 8px 0; }
@@ -278,6 +278,7 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
             <div class="field"><label for="q-method">סטטוס תשלום</label><select id="q-method"></select><span class="hint"></span></div>
             <div class="field"><label for="q-paid">סכום ששולם (₪)</label><input id="q-paid" type="number" inputmode="decimal" min="0" step="1" placeholder="0"><span class="hint"></span></div>
             <div class="field"><label for="q-paydate">תאריך תשלום</label><input id="q-paydate" type="date"><span class="hint"></span></div>
+            <div class="field"><label for="q-payway">אופן תשלום</label><select id="q-payway"></select><span class="hint"></span></div>
             <div class="field notes-f"><label for="q-notes">הערות</label><input id="q-notes" placeholder="לא חובה"></div>
             <div class="field submit-f"><button class="btn primary" type="submit" id="q-submit">הוספה ליומן</button></div>
             <div class="entry-msg" id="q-err" hidden></div>
@@ -337,6 +338,9 @@ import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signI
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const METHODS = ["שולם הוצאה חשבונית", "שולם לא הוצאה חשבונית", "לא שולם"];
+const PAYWAYS = ["מזומן", "ביט", "פייבוקס", "הפקדה בבנק"];
+const paywayOptions = (sel) => [`<option value="">בחרו…</option>`, ...PAYWAYS.map((w) => `<option ${sel === w ? "selected" : ""}>${esc(w)}</option>`),
+  ...(sel && !PAYWAYS.includes(sel) ? [`<option selected>${esc(sel)}</option>`] : [])].join("");
 const M_INVOICE = METHODS[0], M_NOINV = METHODS[1], M_UNPAID = METHODS[2];
 
 const state = {
@@ -552,15 +556,16 @@ function renderTreatments() {
       <td class="n">${money(c.cost)}</td>
       <td class="n">${money(c.paid)}</td>
       <td>${methodChip(t)}</td>
+      <td>${t.payWay ? esc(t.payWay) : '<span class="muted">—</span>'}</td>
       <td class="n ${c.bal > 0 ? "bal-pos" : ""}">${c.bal > 0 ? money(c.bal) : '<span class="muted">—</span>'}</td>
       <td class="notes">${esc(t.notes || "")}</td>
       <td><div class="actions">${c.bal > 0 ? `<button class="btn small primary" type="button" data-act="pay" data-id="${esc(t.clientId)}">רישום תשלום</button>` : ""}<button class="btn small" type="button" data-act="edit-t" data-id="${esc(t.id)}">עריכה</button></div></td>
     </tr>`;
   }).join("");
   box.innerHTML = `<div class="scroll"><table>
-    <thead><tr><th>שם מטופל</th><th>קוד</th><th>תאריך טיפול</th><th>תאריך תשלום</th><th class="n">עלות</th><th class="n">סכום ששולם</th><th>סטטוס תשלום</th><th class="n">יתרה</th><th>הערות</th><th></th></tr></thead>
-    <tbody>${body || `<tr><td colspan="10" class="muted" style="text-align:center;padding:28px">אין טיפולים שמתאימים לסינון</td></tr>`}</tbody>
-    <tfoot><tr><td colspan="4">${rows.length} טיפולים</td><td class="n">${money(tc)}</td><td class="n">${money(tp)}</td><td></td><td class="n">${tb ? money(tb) : "—"}</td><td colspan="2"></td></tr></tfoot>
+    <thead><tr><th>שם מטופל</th><th>קוד</th><th>תאריך טיפול</th><th>תאריך תשלום</th><th class="n">עלות</th><th class="n">סכום ששולם</th><th>סטטוס תשלום</th><th>אופן תשלום</th><th class="n">יתרה</th><th>הערות</th><th></th></tr></thead>
+    <tbody>${body || `<tr><td colspan="11" class="muted" style="text-align:center;padding:28px">אין טיפולים שמתאימים לסינון</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="4">${rows.length} טיפולים</td><td class="n">${money(tc)}</td><td class="n">${money(tp)}</td><td colspan="2"></td><td class="n">${tb ? money(tb) : "—"}</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;
 }
 
@@ -666,7 +671,7 @@ function wireTreatmentFields(p) {
   });
   $(p + "-method").addEventListener("change", () => {
     const m = $(p + "-method").value;
-    if (m === M_UNPAID) { $(p + "-paid").value = 0; $(p + "-paydate").value = ""; }
+    if (m === M_UNPAID) { $(p + "-paid").value = 0; $(p + "-paydate").value = ""; $(p + "-payway").value = ""; }
     else if (m && !(+$(p + "-paid").value)) { $(p + "-paid").value = $(p + "-cost").value || ""; if (!$(p + "-paydate").value) $(p + "-paydate").value = today(); }
   });
   hint();
@@ -688,9 +693,10 @@ async function saveTreatment(p, existing) {
   const nm = $(p + "-client").value.trim(), date = $(p + "-date").value;
   if (!nm) throw { user: "צריך למלא שם מטופל.", field: p + "-client" };
   if (!date) throw { user: "צריך למלא תאריך טיפול.", field: p + "-date" };
-  const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value;
+  const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value, payWay = $(p + "-payway").value;
   if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו סטטוס תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
   if ((paid > 0 || (method && method !== M_UNPAID)) && !payDate) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: p + "-paydate" };
+  if (paid > 0 && !payWay) throw { user: "חסר אופן תשלום. בחרו איך שולם: מזומן, ביט, פייבוקס או הפקדה בבנק.", field: p + "-payway" };
   const cost = +$(p + "-cost").value || 0;
   let client = findClientByName(nm);
 
@@ -720,14 +726,15 @@ async function saveTreatment(p, existing) {
     await put("clients", client.id, clean(client));
     state.clients.set(client.id, client);
   }
-  const data = { clientId: client.id, date, cost, paid: spill.length ? cost : paid, method, payDate, notes: $(p + "-notes").value.trim() };
+  const data = { clientId: client.id, date, cost, paid: spill.length ? cost : paid, method, payDate, payWay: paid > 0 ? payWay : "", notes: $(p + "-notes").value.trim() };
   await put("treatments", existing ? existing.id : newId(), data);
-  for (const s of spill) await put("treatments", s.t.id, { ...clean(s.t), paid: s.paid, payDate, method });
+  for (const s of spill) await put("treatments", s.t.id, { ...clean(s.t), paid: s.paid, payDate, method, payWay });
   return spill.length ? `נרשם תשלום של ${money(paid)}: הטיפול הזה ועוד ${spill.length === 1 ? "טיפול קודם אחד" : spill.length + " טיפולים קודמים"} שלא שולמו` : null;
 }
 
 /* entry panel */
 $("q-method").innerHTML = methodOptions("");
+$("q-payway").innerHTML = paywayOptions("");
 $("q-date").value = today();
 const entryHint = wireTreatmentFields("q");
 $("entry").addEventListener("submit", async (e) => {
@@ -736,7 +743,8 @@ $("entry").addEventListener("submit", async (e) => {
   try {
     const msg = await saveTreatment("q", null);
     for (const id of ["q-client", "q-cost", "q-paid", "q-paydate", "q-notes"]) $(id).value = "";
-    $("q-method").value = ""; entryHint();
+    $("q-method").value = ""; $("q-payway").value = ""; entryHint();
+    document.querySelectorAll("#entry .invalid").forEach((e) => e.classList.remove("invalid"));
     toast(msg || "הטיפול נרשם ביומן", msg ? 5000 : 2600);
     $("q-client").focus();
   } catch (x) {
@@ -776,6 +784,9 @@ function treatmentSheet(t) {
     <div class="row2">
       <div class="field"><label for="f-paid">סכום ששולם (₪)</label><input id="f-paid" type="number" inputmode="decimal" min="0" step="1" value="${esc(t.paid ?? "")}"></div>
       <div class="field"><label for="f-paydate">תאריך תשלום</label><input id="f-paydate" type="date" value="${esc(t.payDate || "")}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="f-payway">אופן תשלום</label><select id="f-payway">${paywayOptions(t.payWay || "")}</select></div>
     </div>
     <div class="field"><label for="f-notes">הערות</label><textarea id="f-notes">${esc(t.notes || "")}</textarea></div>
     <div class="err" id="f-err" hidden></div>
@@ -839,19 +850,23 @@ function paymentSheet(clientId) {
       <div class="field"><label for="p-amount">סכום שהתקבל (₪)</label><input id="p-amount" type="number" inputmode="decimal" min="0" step="1"></div>
       <div class="field"><label for="p-date">תאריך תשלום</label><input id="p-date" type="date" value="${today()}"></div>
     </div>
-    <div class="field"><label for="p-method">סטטוס תשלום</label><select id="p-method"><option>${esc(M_INVOICE)}</option><option>${esc(M_NOINV)}</option></select></div>
+    <div class="row2">
+      <div class="field"><label for="p-method">סטטוס תשלום</label><select id="p-method"><option>${esc(M_INVOICE)}</option><option>${esc(M_NOINV)}</option></select></div>
+      <div class="field"><label for="p-payway">אופן תשלום</label><select id="p-payway">${paywayOptions("")}</select></div>
+    </div>
     <span class="muted" style="font-size:.85rem">אם הסכום קטן מהחוב, הוא ייזקף לטיפולים הישנים קודם, והיתרה תישאר פתוחה.</span>
     <div class="err" id="p-err" hidden></div>
     <footer><button class="btn primary" type="submit" id="p-go">רישום התשלום</button><button class="btn" type="button" data-close>ביטול</button></footer>
   `, async () => {
     const chosen = open.filter((_, i) => $("p-t-" + i).checked);
     const due = chosen.reduce((s, t) => s + calc(t).bal, 0);
-    const amount = +$("p-amount").value || 0, date = $("p-date").value, method = $("p-method").value;
+    const amount = +$("p-amount").value || 0, date = $("p-date").value, method = $("p-method").value, payWay = $("p-payway").value;
     try {
       if (!chosen.length) throw { user: "צריך לסמן לפחות טיפול אחד." };
       if (amount <= 0) throw { user: "צריך להזין את הסכום שהתקבל.", field: "p-amount" };
       if (amount > due) throw { user: `הסכום גבוה מהחוב על הטיפולים שסומנו (${money(due)}). סמנו עוד טיפולים או תקנו את הסכום.`, field: "p-amount" };
       if (!date) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: "p-date" };
+      if (!payWay) throw { user: "חסר אופן תשלום. בחרו איך שולם: מזומן, ביט, פייבוקס או הפקדה בבנק.", field: "p-payway" };
     } catch (x) { showFormError("p-err", x); return; }
     $("p-go").disabled = true;
     let left = amount, count = 0;
@@ -859,7 +874,7 @@ function paymentSheet(clientId) {
       for (const t of chosen) {
         if (left <= 0) break;
         const k = calc(t), pay = Math.min(k.bal, left);
-        await put("treatments", t.id, { ...clean(t), paid: k.paid + pay, payDate: date, method });
+        await put("treatments", t.id, { ...clean(t), paid: k.paid + pay, payDate: date, method, payWay });
         left -= pay; count++;
       }
       closeSheet(); toast(`נרשם תשלום של ${money(amount)} עבור ${count} טיפולים`);
@@ -971,6 +986,7 @@ function analyzeImport(rows) {
     cost: idx((c) => c.includes("עלות")),
     paid: idx((c) => c.includes("סכום") || c.includes("ששולם")),
     method: idx((c) => c.includes("אמצעי") || c.includes("סטטוס")),
+    payWay: idx((c) => c.includes("אופן")),
   };
   const get = (r, k) => (col[k] >= 0 ? r[col[k]] || "" : "");
   const newClients = new Map(), items = [];
@@ -980,7 +996,7 @@ function analyzeImport(rows) {
     if (!date && !cost && !paid) continue;
     let client = findClientByName(name) || newClients.get(name);
     if (!client) { client = { id: newId(), name, code: cellVal(get(r, "code")), phone: "", price: cost || 0, notes: "" }; newClients.set(name, client); }
-    items.push({ clientId: client.id, date, cost, paid, method: normMethod(get(r, "method")), payDate: parseDate(get(r, "payDate")), notes: "" });
+    items.push({ clientId: client.id, date, cost, paid, method: normMethod(get(r, "method")), payDate: parseDate(get(r, "payDate")), payWay: cellVal(get(r, "payWay")), notes: "" });
   }
   return { newClients: [...newClients.values()], items };
 }
@@ -1023,10 +1039,10 @@ $("csv-file").addEventListener("change", () => {
 
 $("btn-export").onclick = () => {
   const q = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-  const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "סטטוס תשלום", "יתרה", "הערות"].join(",")];
+  const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "סטטוס תשלום", "אופן תשלום", "יתרה", "הערות"].join(",")];
   for (const t of sortedTreatments().reverse()) {
     const cl = clientOf(t), c = calc(t);
-    lines.push([cl.name, cl.code, fmtDate(t.date), fmtDate(t.payDate), c.cost, c.paid, t.method, c.bal, t.notes].map(q).join(","));
+    lines.push([cl.name, cl.code, fmtDate(t.date), fmtDate(t.payDate), c.cost, c.paid, t.method, t.payWay, c.bal, t.notes].map(q).join(","));
   }
   const url = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const a = document.createElement("a"); a.href = url; a.download = `yoman-metuplim-${today()}.csv`;
