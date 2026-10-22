@@ -1,0 +1,10 @@
+# Patient data must never be committed — the repository is public.
+*.csv
+*.tsv
+*.xlsx
+*.xls
+
+node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log

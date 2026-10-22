@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>יומן מטופלים</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Frank+Ruhl+Libre:wght@500;700&display=swap">
+<style>
+/* Layout: a clinic ledger — summary strip on top, tabbed register below, edits in a side sheet. */
+:root {
+  --bg: #f2f4f0;
+  --surface: #ffffff;
+  --surface-2: #f8faf7;
+  --ink: #17302a;
+  --muted: #5b6c66;
+  --line: #d8dfd9;
+  --primary: #1f5a4a;
+  --primary-ink: #ffffff;
+  --accent: #b5832a;
+  --accent-soft: #f6ecd6;
+  --ok: #2c7a4c;
+  --ok-soft: #e1f1e6;
+  --warn: #9a6200;
+  --warn-soft: #fbefd5;
+  --bad: #b13838;
+  --bad-soft: #f8e2e0;
+  --shadow: 0 10px 40px rgba(23, 48, 42, .18);
+  --f-display: "Frank Ruhl Libre", "David", "Times New Roman", serif;
+  --f-body: "Assistant", "Segoe UI", "Arial Hebrew", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1815; --surface: #16221e; --surface-2: #1b2924; --ink: #e2ebe6; --muted: #93a79f; --line: #2b3b35;
+    --primary: #67b89f; --primary-ink: #0d1916; --accent: #d9a94e; --accent-soft: #3a2f19;
+    --ok: #74c592; --ok-soft: #1c3526; --warn: #e3ac45; --warn-soft: #3a2d12; --bad: #ec8080; --bad-soft: #3d1f1f;
+    --shadow: 0 10px 40px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1815; --surface: #16221e; --surface-2: #1b2924; --ink: #e2ebe6; --muted: #93a79f; --line: #2b3b35;
+  --primary: #67b89f; --primary-ink: #0d1916; --accent: #d9a94e; --accent-soft: #3a2f19;
+  --ok: #74c592; --ok-soft: #1c3526; --warn: #e3ac45; --warn-soft: #3a2d12; --bad: #ec8080; --bad-soft: #3d1f1f;
+  --shadow: 0 10px 40px rgba(0, 0, 0, .5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 24px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1, h2 { font-family: var(--f-display); font-weight: 700; margin: 0; text-wrap: balance; }
+h1 { font-size: 2rem; line-height: 1.1; }
+h2 { font-size: 1.25rem; }
+.num { font-variant-numeric: tabular-nums; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+.top p { margin: 4px 0 0; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 8px; font-weight: 600; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--bad); }
+.btn.danger.armed { background: var(--bad); color: var(--surface); border-color: var(--bad); }
+.btn.small { padding: 4px 10px; font-size: .875rem; }
+.linkish { background: none; border: 0; padding: 0; color: inherit; font-weight: 600; text-align: start; }
+.linkish:hover { color: var(--primary); text-decoration: underline; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.stat { padding: 14px 18px; border-inline-start: 1px solid var(--line); display: grid; gap: 2px; }
+.stat:first-child { border-inline-start: 0; }
+.stat .k { font-size: .8125rem; color: var(--muted); letter-spacing: .02em; }
+.stat .v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .s { font-size: .8125rem; color: var(--muted); }
+.stat.debt .v { color: var(--bad); }
+.stat.income .v { color: var(--ok); }
+.stat.invoice .v { color: var(--warn); }
+
+.banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 14px; }
+.banner.info { background: var(--surface-2); border-color: var(--line); }
+
+/* tabs + filters */
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); padding: 4px; border-radius: 10px; }
+.tab { border: 0; background: none; padding: 6px 14px; border-radius: 7px; font-weight: 600; color: var(--muted); }
+.tab[aria-selected="true"] { background: var(--primary); color: var(--primary-ink); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters input, .filters select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+.filters input[type="search"] { width: 190px; }
+
+/* table */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; text-align: start; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { background: var(--surface-2); font-size: .8125rem; color: var(--muted); font-weight: 600; letter-spacing: .02em; position: relative; }
+td.n, th.n { text-align: end; font-variant-numeric: tabular-nums; }
+tbody tr:hover td { background: var(--surface-2); }
+tfoot td { font-weight: 700; background: var(--surface-2); border-bottom: 0; }
+td.notes { white-space: normal; min-width: 140px; color: var(--muted); font-size: .875rem; }
+.muted { color: var(--muted); }
+.code { font-variant-numeric: tabular-nums; color: var(--muted); }
+.chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .8125rem; font-weight: 600; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.none { background: var(--surface-2); color: var(--muted); }
+.ex { font-size: .75rem; color: var(--accent); font-weight: 700; margin-inline-start: 6px; }
+.bal-pos { color: var(--bad); font-weight: 700; }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; }
+.empty strong { color: var(--ink); font-size: 1.1rem; }
+.bar-cell { width: 160px; }
+.meter { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; display: flex; }
+.meter i { display: block; height: 100%; }
+.meter .a { background: var(--ok); }
+.meter .b { background: var(--warn); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .8125rem; color: var(--muted); padding: 10px 14px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 6px; vertical-align: -1px; background: var(--c); }
+
+/* sheet */
+.overlay { position: fixed; inset: 0; background: rgba(10, 20, 17, .45); display: flex; justify-content: flex-start; z-index: 20; }
+.sheet { background: var(--surface); width: min(440px, 100%); height: 100%; overflow-y: auto; box-shadow: var(--shadow); padding: 24px max(20px, env(safe-area-inset-right, 0px)) 24px max(20px, env(safe-area-inset-left, 0px)); padding-top: calc(24px + env(safe-area-inset-top, 0px)); display: grid; gap: 14px; align-content: start; }
+.sheet header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.field { display: grid; gap: 4px; }
+.field label { font-size: .8125rem; font-weight: 600; color: var(--muted); }
+.field input, .field select, .field textarea { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%; }
+.field textarea { min-height: 70px; resize: vertical; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hint { font-size: .8125rem; color: var(--muted); }
+.err { color: var(--bad); font-size: .875rem; font-weight: 600; }
+.sheet footer { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+.toast { position: fixed; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 8px; font-weight: 600; z-index: 30; max-width: calc(100% - 32px); }
+@media (max-width: 560px) {
+  h1 { font-size: 1.6rem; }
+  .filters input[type="search"] { width: 100%; }
+  .filters { width: 100%; }
+  .filters > * { flex: 1 1 140px; }
+  .stat { border-inline-start: 0; border-top: 1px solid var(--line); }
+  .row2 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(-24px); opacity: .6; } } }
+.who { display: flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap" dir="rtl" lang="he">
+  <div class="top">
+    <div>
+      <h1>יומן מטופלים</h1>
+      <p>טיפולים, תשלומים וחובות פתוחים במקום אחד</p>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="btn-new-t" type="button">+ טיפול חדש</button>
+      <button class="btn" id="btn-new-c" type="button">+ מטופל חדש</button>
+      <button class="btn" id="btn-import" type="button">ייבוא מהגיליון (CSV)</button>
+      <button class="btn" id="btn-export" type="button">ייצוא ל-CSV</button>
+      <input type="file" id="csv-file" accept=".csv,.tsv,.txt,text/csv" hidden>
+    </div>
+    <div class="who" id="who" hidden><span id="who-name"></span><button class="btn small" id="btn-signout" type="button">יציאה</button></div>
+  </div>
+
+  <section class="stats" id="stats" aria-label="סיכום"></section>
+  <div id="banners"></div>
+
+  <div class="bar">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-treatments" data-view="treatments" type="button">טיפולים</button>
+      <button class="tab" role="tab" id="tab-clients" data-view="clients" type="button">מטופלים</button>
+      <button class="tab" role="tab" id="tab-months" data-view="months" type="button">סיכום חודשי</button>
+    </div>
+    <div class="filters" id="filters">
+      <input type="search" id="flt-q" placeholder="חיפוש לפי שם או קוד">
+      <select id="flt-status" aria-label="סטטוס תשלום">
+        <option value="">כל הסטטוסים</option>
+        <option value="open">חוב פתוח</option>
+        <option value="paid">שולם במלואו</option>
+        <option value="noinv">שולם ללא חשבונית</option>
+      </select>
+      <select id="flt-method" aria-label="אמצעי תשלום">
+        <option value="">כל אמצעי התשלום</option>
+      </select>
+      <input type="month" id="flt-month" aria-label="חודש">
+      <button class="btn small" id="flt-clear" type="button">ניקוי</button>
+    </div>
+  </div>
+
+  <main id="view"></main>
+</div>
+
+<div class="overlay" id="overlay" hidden dir="rtl" lang="he"><form class="sheet" id="sheet" novalidate></form></div>
+<datalist id="clients-dl"></datalist>
+<div class="toast" id="toast" hidden dir="rtl"></div>
+
+<script type="module">
+import { firebaseConfig } from "./firebase-config.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const METHODS = ["שולם הוצאה חשבונית", "שולם לא הוצאה חשבונית", "לא שולם"];
+const M_INVOICE = METHODS[0], M_NOINV = METHODS[1], M_UNPAID = METHODS[2];
+
+const state = {
+  clients: new Map(),
+  treatments: new Map(),
+  loaded: { clients: false, treatments: false },
+  mode: "connecting", // connecting | signedout | live | noconfig | offline
+  view: "treatments",
+  f: { q: "", status: "", method: "", month: "" },
+};
+let fs = null, auth = null, uid = null, unsubs = [];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nis = new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+const money = (n) => nis.format(Math.round(n || 0));
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const fmtDate = (iso) => { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
+const monthName = (ym) => { const [y, m] = ym.split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString("he-IL", { month: "long", year: "numeric" }); };
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+function toast(msg, ms = 2600) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.hidden = true), ms);
+}
+
+/* ---------- derived data ---------- */
+function calc(t) {
+  const cost = +t.cost || 0, paid = +t.paid || 0, bal = cost - paid;
+  let status = "none";
+  if (cost > 0 || paid > 0) status = bal <= 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
+  return { cost, paid, bal, status };
+}
+const clientOf = (t) => state.clients.get(t.clientId) || { name: t.clientName || "(מטופל נמחק)", code: "" };
+const sortedTreatments = () => [...state.treatments.values()].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+function nextCode() {
+  let max = 100;
+  for (const c of state.clients.values()) { const n = parseInt(c.code, 10); if (!isNaN(n) && n > max) max = n; }
+  return String(max + 1);
+}
+const findClientByName = (name) => { const n = name.trim(); for (const c of state.clients.values()) if (c.name.trim() === n) return c; return null; };
+
+/* ---------- persistence ---------- */
+// Every user's data lives under users/{uid}/ — see firestore.rules.
+async function put(col, id, data) {
+  if (fs && uid) { await setDoc(doc(fs, "users", uid, col, id), data); }
+  else { state[col].set(id, { id, ...data }); render(); }
+}
+async function remove(col, id) {
+  if (fs && uid) { await deleteDoc(doc(fs, "users", uid, col, id)); }
+  else { state[col].delete(id); render(); }
+}
+function clean(obj) { const o = { ...obj }; delete o.id; return o; }
+function writeError(e) {
+  const code = e && e.code;
+  if (code === "permission-denied") toast("אין הרשאה לשמור. נסו לצאת ולהיכנס שוב.", 5000);
+  else if (code === "resource-exhausted") toast("חרגתם ממכסת השימוש של Firebase. נסו שוב מאוחר יותר.", 5000);
+  else toast("השמירה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב.", 4000);
+}
+
+function stopListening() {
+  unsubs.forEach((u) => u()); unsubs = [];
+  state.clients = new Map(); state.treatments = new Map();
+  state.loaded = { clients: false, treatments: false };
+}
+
+function connect() {
+  if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("PASTE")) { state.mode = "noconfig"; render(); return; }
+  try {
+    const app = initializeApp(firebaseConfig);
+    auth = getAuth(app); fs = getFirestore(app);
+  } catch (e) { console.error(e); state.mode = "offline"; render(); return; }
+  onAuthStateChanged(auth, (user) => {
+    stopListening();
+    uid = user ? user.uid : null;
+    $("who").hidden = !user;
+    $("who-name").textContent = user ? (user.displayName || user.email || "") : "";
+    if (!user) { state.mode = "signedout"; render(); return; }
+    state.mode = "live";
+    for (const col of ["clients", "treatments"]) {
+      unsubs.push(onSnapshot(collection(fs, "users", uid, col), (snap) => {
+        state[col] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+        state.loaded[col] = true;
+        render();
+      }, (e) => { console.error(e); toast("לא הצלחתי לטעון את הנתונים מ-Firebase.", 5000); }));
+    }
+    render();
+  });
+}
+
+async function signIn() {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) { if (e && e.code !== "auth/popup-closed-by-user") toast("הכניסה נכשלה: " + (e.code || "שגיאה לא ידועה"), 5000); }
+}
+$("btn-signout").onclick = () => signOut(auth);
+
+/* ---------- rendering ---------- */
+function render() {
+  renderStats(); renderBanners(); renderTabs(); renderDatalist();
+  if (state.view === "treatments") renderTreatments();
+  else if (state.view === "clients") renderClients();
+  else renderMonths();
+}
+
+function renderStats() {
+  let income = 0, debt = 0, noinv = 0, noinvSum = 0, monthCount = 0, monthIncome = 0;
+  const debtors = new Set(), ym = today().slice(0, 7);
+  for (const t of state.treatments.values()) {
+    const c = calc(t);
+    income += c.paid;
+    if (c.bal > 0) { debt += c.bal; debtors.add(t.clientId); }
+    if (t.method === M_NOINV && c.paid > 0) { noinv++; noinvSum += c.paid; }
+    if ((t.date || "").startsWith(ym)) { monthCount++; monthIncome += c.paid; }
+  }
+  $("stats").innerHTML = `
+    <div class="stat income"><span class="k">סה"כ הכנסה</span><span class="v">${money(income)}</span><span class="s">${state.treatments.size} טיפולים ביומן</span></div>
+    <div class="stat debt"><span class="k">יתרת חוב פתוחה</span><span class="v">${money(debt)}</span><span class="s">${debtors.size} מטופלים חייבים</span></div>
+    <div class="stat"><span class="k">החודש</span><span class="v">${money(monthIncome)}</span><span class="s">${monthCount} טיפולים ב${esc(monthName(ym))}</span></div>
+    <div class="stat invoice"><span class="k">שולם ללא חשבונית</span><span class="v">${noinv}</span><span class="s">${noinv ? money(noinvSum) + " ממתינים לחשבונית" : "הכול מסודר"}</span></div>`;
+}
+
+function renderBanners() {
+  const parts = [];
+  if (state.mode === "offline") parts.push(`<div class="banner info"><span>אין חיבור ל-Firebase, לכן השינויים יישמרו רק עד סגירת העמוד.</span></div>`);
+  if (state.mode === "noconfig") parts.push(`<div class="banner info"><span>התוכנה עוד לא מחוברת ל-Firebase. צריך למלא את הקובץ public/firebase-config.js. עד אז השינויים יישמרו רק עד סגירת העמוד.</span></div>`);
+  const hasEx = [...state.clients.values(), ...state.treatments.values()].some((x) => x.example);
+  if (hasEx) parts.push(`<div class="banner"><span>אלה נתוני דוגמה שמראים איך היומן עובד. אפשר למחוק אותם ולייבא את הגיליון שלכם.</span><button class="btn small" type="button" id="btn-clear-ex">מחיקת נתוני הדוגמה</button></div>`);
+  $("banners").innerHTML = parts.join("");
+  $("banners").hidden = !parts.length;
+  const b = $("btn-clear-ex"); if (b) b.onclick = clearExamples;
+}
+
+function renderTabs() {
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === state.view)));
+  const showF = state.view === "treatments";
+  $("flt-status").hidden = $("flt-method").hidden = $("flt-month").hidden = !showF;
+  $("filters").hidden = state.view === "months";
+}
+
+function renderDatalist() {
+  $("clients-dl").innerHTML = [...state.clients.values()].sort((a, b) => a.name.localeCompare(b.name, "he")).map((c) => `<option value="${esc(c.name)}"></option>`).join("");
+}
+
+function loadingOrEmpty(kind) {
+  if (state.mode === "signedout")
+    return `<div class="card"><div class="empty"><strong>כניסה ליומן</strong><span>הנתונים שמורים בחשבון שלך ונגישים רק לך.</span><button class="btn primary" type="button" data-act="signin">כניסה עם Google</button></div></div>`;
+  if (state.mode === "connecting" || (state.mode === "live" && !(state.loaded.clients && state.loaded.treatments)))
+    return `<div class="card"><div class="empty"><span>טוען את היומן…</span></div></div>`;
+  return null;
+}
+
+function methodChip(t, c) {
+  if (t.method === M_INVOICE) return `<span class="chip ok">${esc(t.method)}</span>`;
+  if (t.method === M_NOINV) return `<span class="chip warn">${esc(t.method)}</span>`;
+  if (t.method === M_UNPAID) return `<span class="chip bad">${esc(t.method)}</span>`;
+  return t.method ? `<span class="chip none">${esc(t.method)}</span>` : `<span class="muted">לא צוין</span>`;
+}
+
+function filteredTreatments() {
+  const { q, status, method, month } = state.f, qq = q.trim();
+  return sortedTreatments().filter((t) => {
+    const cl = clientOf(t), c = calc(t);
+    if (qq && !(cl.name.includes(qq) || String(cl.code).includes(qq))) return false;
+    if (month && !(t.date || "").startsWith(month)) return false;
+    if (method && (t.method || "") !== (method === "_none" ? "" : method)) return false;
+    if (status === "open" && !(c.bal > 0)) return false;
+    if (status === "paid" && c.status !== "paid") return false;
+    if (status === "noinv" && !(t.method === M_NOINV && c.paid > 0)) return false;
+    return true;
+  });
+}
+
+function renderTreatments() {
+  const wait = loadingOrEmpty(); if (wait) { $("view").innerHTML = wait; return; }
+  if (!state.treatments.size) {
+    $("view").innerHTML = `<div class="card"><div class="empty"><strong>היומן עדיין ריק</strong><span>הוסיפו טיפול ראשון, או ייבאו את הגיליון הקיים כקובץ CSV (בגוגל שיטס: קובץ ← הורדה ← CSV).</span><div class="actions"><button class="btn primary" type="button" data-act="new-t">+ טיפול חדש</button><button class="btn" type="button" data-act="import">ייבוא CSV</button></div></div></div>`;
+    return;
+  }
+  const rows = filteredTreatments();
+  let tc = 0, tp = 0, tb = 0;
+  const body = rows.map((t) => {
+    const cl = clientOf(t), c = calc(t); tc += c.cost; tp += c.paid; tb += Math.max(c.bal, 0);
+    return `<tr>
+      <td><button class="linkish" type="button" data-act="filter-client" data-name="${esc(cl.name)}">${esc(cl.name)}</button>${t.example ? '<span class="ex">דוגמה</span>' : ""}</td>
+      <td class="code">${esc(cl.code)}</td>
+      <td class="num">${fmtDate(t.date)}</td>
+      <td class="num">${t.payDate ? fmtDate(t.payDate) : '<span class="muted">—</span>'}</td>
+      <td class="n">${money(c.cost)}</td>
+      <td class="n">${money(c.paid)}</td>
+      <td>${methodChip(t, c)}</td>
+      <td class="n ${c.bal > 0 ? "bal-pos" : ""}">${c.bal > 0 ? money(c.bal) : "—"}</td>
+      <td class="notes">${esc(t.notes || "")}</td>
+      <td><button class="btn small" type="button" data-act="edit-t" data-id="${esc(t.id)}">עריכה</button></td>
+    </tr>`;
+  }).join("");
+  $("view").innerHTML = `<div class="card"><div class="scroll"><table>
+    <thead><tr><th>שם מטופל</th><th>קוד</th><th>תאריך טיפול</th><th>תאריך תשלום</th><th class="n">עלות</th><th class="n">סכום ששולם</th><th>אמצעי תשלום</th><th class="n">יתרה</th><th>הערות</th><th></th></tr></thead>
+    <tbody>${body || `<tr><td colspan="10" class="muted" style="text-align:center;padding:28px">אין טיפולים שמתאימים לסינון</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="4">${rows.length} טיפולים</td><td class="n">${money(tc)}</td><td class="n">${money(tp)}</td><td></td><td class="n">${tb ? money(tb) : "—"}</td><td colspan="2"></td></tr></tfoot>
+  </table></div></div>`;
+}
+
+function clientAgg() {
+  const agg = new Map();
+  for (const c of state.clients.values()) agg.set(c.id, { c, n: 0, cost: 0, paid: 0, bal: 0, last: "" });
+  for (const t of state.treatments.values()) {
+    const a = agg.get(t.clientId); if (!a) continue;
+    const c = calc(t); a.n++; a.cost += c.cost; a.paid += c.paid; a.bal += c.bal;
+    if ((t.date || "") > a.last) a.last = t.date;
+  }
+  return [...agg.values()];
+}
+
+function renderClients() {
+  const wait = loadingOrEmpty(); if (wait) { $("view").innerHTML = wait; return; }
+  if (!state.clients.size) {
+    $("view").innerHTML = `<div class="card"><div class="empty"><strong>אין עדיין מטופלים</strong><span>מטופל נוצר אוטומטית כשמוסיפים לו טיפול, או אפשר להוסיף אותו כאן.</span><button class="btn primary" type="button" data-act="new-c">+ מטופל חדש</button></div></div>`;
+    return;
+  }
+  const qq = state.f.q.trim();
+  const list = clientAgg().filter((a) => !qq || a.c.name.includes(qq) || String(a.c.code).includes(qq))
+    .sort((x, y) => (y.bal > 0) - (x.bal > 0) || y.bal - x.bal || x.c.name.localeCompare(y.c.name, "he"));
+  let tn = 0, tp = 0, tb = 0;
+  const body = list.map((a) => {
+    tn += a.n; tp += a.paid; tb += Math.max(a.bal, 0);
+    const chip = a.bal > 0 ? `<span class="chip bad">חוב ${money(a.bal)}</span>` : a.bal < 0 ? `<span class="chip warn">זכות ${money(-a.bal)}</span>` : `<span class="chip ok">מאוזן</span>`;
+    return `<tr>
+      <td><button class="linkish" type="button" data-act="open-client" data-name="${esc(a.c.name)}">${esc(a.c.name)}</button>${a.c.example ? '<span class="ex">דוגמה</span>' : ""}</td>
+      <td class="code">${esc(a.c.code)}</td>
+      <td class="num">${esc(a.c.phone || "")}</td>
+      <td class="n">${a.c.price ? money(a.c.price) : '<span class="muted">—</span>'}</td>
+      <td class="n">${a.n}</td>
+      <td class="num">${a.last ? fmtDate(a.last) : '<span class="muted">—</span>'}</td>
+      <td class="n">${money(a.paid)}</td>
+      <td>${chip}</td>
+      <td><button class="btn small" type="button" data-act="new-t-for" data-name="${esc(a.c.name)}">+ טיפול</button> <button class="btn small" type="button" data-act="edit-c" data-id="${esc(a.c.id)}">עריכה</button></td>
+    </tr>`;
+  }).join("");
+  $("view").innerHTML = `<div class="card"><div class="scroll"><table>
+    <thead><tr><th>לקוח</th><th>קוד</th><th>טלפון</th><th class="n">מחיר לטיפול</th><th class="n">טיפולים</th><th>טיפול אחרון</th><th class="n">שולם</th><th>יתרת חוב</th><th></th></tr></thead>
+    <tbody>${body || `<tr><td colspan="9" class="muted" style="text-align:center;padding:28px">לא נמצאו מטופלים</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="4">${list.length} מטופלים</td><td class="n">${tn}</td><td></td><td class="n">${money(tp)}</td><td>${tb ? money(tb) : "—"}</td><td></td></tr></tfoot>
+  </table></div></div>`;
+}
+
+function renderMonths() {
+  const wait = loadingOrEmpty(); if (wait) { $("view").innerHTML = wait; return; }
+  const by = new Map();
+  for (const t of state.treatments.values()) {
+    const ym = (t.date || "").slice(0, 7) || "????-??";
+    const m = by.get(ym) || { n: 0, cost: 0, paid: 0, inv: 0, noinv: 0, bal: 0 };
+    const c = calc(t); m.n++; m.cost += c.cost; m.paid += c.paid; m.bal += Math.max(c.bal, 0);
+    if (t.method === M_INVOICE) m.inv += c.paid; else if (t.method === M_NOINV) m.noinv += c.paid;
+    by.set(ym, m);
+  }
+  if (!by.size) { $("view").innerHTML = `<div class="card"><div class="empty"><strong>אין עדיין נתונים לסיכום</strong><span>הסיכום החודשי יתמלא אחרי שתוסיפו טיפולים.</span></div></div>`; return; }
+  const months = [...by.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  const maxPaid = Math.max(1, ...months.map(([, m]) => m.paid));
+  const tot = { n: 0, cost: 0, paid: 0, inv: 0, noinv: 0, bal: 0 };
+  const body = months.map(([ym, m]) => {
+    for (const k in tot) tot[k] += m[k];
+    const wa = (m.inv / maxPaid) * 100, wb = ((m.paid - m.inv) / maxPaid) * 100;
+    return `<tr>
+      <td>${ym.includes("?") ? "ללא תאריך" : esc(monthName(ym))}</td>
+      <td class="n">${m.n}</td><td class="n">${money(m.cost)}</td><td class="n">${money(m.paid)}</td>
+      <td class="n">${money(m.inv)}</td><td class="n">${m.noinv ? money(m.noinv) : "—"}</td>
+      <td class="n ${m.bal > 0 ? "bal-pos" : ""}">${m.bal ? money(m.bal) : "—"}</td>
+      <td class="bar-cell"><div class="meter" title="${money(m.paid)}"><i class="a" style="width:${wa}%"></i><i class="b" style="width:${wb}%"></i></div></td>
+    </tr>`;
+  }).join("");
+  $("view").innerHTML = `<div class="card"><div class="scroll"><table>
+    <thead><tr><th>חודש</th><th class="n">טיפולים</th><th class="n">חיוב</th><th class="n">הכנסה</th><th class="n">עם חשבונית</th><th class="n">ללא חשבונית</th><th class="n">חוב פתוח</th><th>הכנסה</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td>סה"כ</td><td class="n">${tot.n}</td><td class="n">${money(tot.cost)}</td><td class="n">${money(tot.paid)}</td><td class="n">${money(tot.inv)}</td><td class="n">${money(tot.noinv)}</td><td class="n">${money(tot.bal)}</td><td></td></tr></tfoot>
+  </table></div>
+  <div class="legend"><span style="--c:var(--ok)">הכנסה עם חשבונית</span><span style="--c:var(--warn)">הכנסה אחרת</span><span>החודש נקבע לפי תאריך הטיפול</span></div></div>`;
+}
+
+/* ---------- sheets (forms) ---------- */
+function openSheet(html, onSubmit, onReady) {
+  const s = $("sheet"); s.innerHTML = html; $("overlay").hidden = false;
+  s.onsubmit = async (e) => { e.preventDefault(); await onSubmit(); };
+  s.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeSheet));
+  onReady && onReady(s);
+  const first = s.querySelector("input,select,textarea"); first && first.focus();
+}
+function closeSheet() { $("overlay").hidden = true; $("sheet").innerHTML = ""; }
+$("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("overlay").hidden) closeSheet(); });
+
+function armDelete(btn, action) {
+  btn.onclick = async () => {
+    if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "לחיצה נוספת תמחק"; return; }
+    btn.disabled = true; await action();
+  };
+}
+
+function treatmentForm(t, presetName) {
+  const isNew = !t; t = t || { date: today(), method: "" };
+  const cl = t.clientId ? clientOf(t) : null;
+  const name = cl ? cl.name : presetName || "";
+  const preset = !isNew ? null : findClientByName(name);
+  const cost = isNew ? (preset && preset.price ? preset.price : "") : t.cost;
+  const opts = [`<option value="">לא צוין</option>`, ...METHODS.map((m) => `<option ${t.method === m ? "selected" : ""}>${esc(m)}</option>`)];
+  if (t.method && !METHODS.includes(t.method)) opts.push(`<option selected>${esc(t.method)}</option>`);
+  openSheet(`
+    <header><h2>${isNew ? "טיפול חדש" : "עריכת טיפול"}</h2><button class="btn small" type="button" data-close>סגירה</button></header>
+    <div class="field"><label for="f-client">שם מטופל</label><input id="f-client" list="clients-dl" autocomplete="off" value="${esc(name)}" required><span class="hint" id="f-client-hint"></span></div>
+    <div class="row2">
+      <div class="field"><label for="f-date">תאריך טיפול</label><input id="f-date" type="date" value="${esc(t.date || "")}" required></div>
+      <div class="field"><label for="f-cost">עלות (₪)</label><input id="f-cost" type="number" inputmode="decimal" min="0" step="1" value="${esc(cost ?? "")}"></div>
+    </div>
+    <div class="field"><label for="f-method">אמצעי תשלום</label><select id="f-method">${opts.join("")}</select></div>
+    <div class="row2">
+      <div class="field"><label for="f-paid">סכום ששולם (₪)</label><input id="f-paid" type="number" inputmode="decimal" min="0" step="1" value="${esc(isNew ? "" : t.paid ?? "")}"></div>
+      <div class="field"><label for="f-paydate">תאריך תשלום</label><input id="f-paydate" type="date" value="${esc(t.payDate || "")}"></div>
+    </div>
+    <div class="field"><label for="f-notes">הערות</label><textarea id="f-notes">${esc(t.notes || "")}</textarea></div>
+    <div class="err" id="f-err" hidden></div>
+    <footer><button class="btn primary" type="submit">${isNew ? "הוספה ליומן" : "שמירת שינויים"}</button>${isNew ? "" : '<button class="btn danger" type="button" id="f-del">מחיקת הטיפול</button>'}</footer>
+  `, async () => {
+    const nm = $("f-client").value.trim(), date = $("f-date").value;
+    const err = $("f-err");
+    if (!nm || !date) { err.textContent = "צריך למלא שם מטופל ותאריך טיפול."; err.hidden = false; return; }
+    try {
+      let client = findClientByName(nm);
+      if (!client) {
+        client = { id: newId(), name: nm, code: nextCode(), phone: "", price: +$("f-cost").value || 0, notes: "" };
+        await put("clients", client.id, clean(client));
+        state.clients.set(client.id, client);
+      }
+      const data = { clientId: client.id, date, cost: +$("f-cost").value || 0, paid: +$("f-paid").value || 0, method: $("f-method").value, payDate: $("f-paydate").value, notes: $("f-notes").value.trim() };
+      if (t.example) data.example = true;
+      await put("treatments", isNew ? newId() : t.id, data);
+      closeSheet(); toast(isNew ? "הטיפול נוסף ליומן" : "השינויים נשמרו");
+    } catch (e) { writeError(e); }
+  }, (s) => {
+    const hint = () => { const n = $("f-client").value.trim(); $("f-client-hint").textContent = n && !findClientByName(n) ? `מטופל חדש, יקבל קוד ${nextCode()}` : ""; };
+    $("f-client").addEventListener("input", () => {
+      hint(); const c = findClientByName($("f-client").value);
+      if (c && c.price && !$("f-cost").value) $("f-cost").value = c.price;
+    });
+    hint();
+    $("f-method").addEventListener("change", () => {
+      const m = $("f-method").value;
+      if (m === M_UNPAID) { $("f-paid").value = 0; $("f-paydate").value = ""; }
+      else if (m && !(+$("f-paid").value)) { $("f-paid").value = $("f-cost").value || ""; if (!$("f-paydate").value) $("f-paydate").value = today(); }
+    });
+    const del = $("f-del");
+    if (del) armDelete(del, async () => { try { await remove("treatments", t.id); closeSheet(); toast("הטיפול נמחק"); } catch (e) { writeError(e); } });
+  });
+}
+
+function clientForm(c) {
+  const isNew = !c; c = c || { code: nextCode() };
+  const count = isNew ? 0 : [...state.treatments.values()].filter((t) => t.clientId === c.id).length;
+  openSheet(`
+    <header><h2>${isNew ? "מטופל חדש" : "עריכת מטופל"}</h2><button class="btn small" type="button" data-close>סגירה</button></header>
+    <div class="field"><label for="c-name">שם מטופל</label><input id="c-name" value="${esc(c.name || "")}" required></div>
+    <div class="row2">
+      <div class="field"><label for="c-code">קוד</label><input id="c-code" value="${esc(c.code || "")}"></div>
+      <div class="field"><label for="c-price">מחיר לטיפול (₪)</label><input id="c-price" type="number" inputmode="decimal" min="0" value="${esc(c.price || "")}"></div>
+    </div>
+    <div class="field"><label for="c-phone">טלפון</label><input id="c-phone" type="tel" dir="ltr" style="text-align:right" value="${esc(c.phone || "")}"></div>
+    <div class="field"><label for="c-notes">הערות</label><textarea id="c-notes">${esc(c.notes || "")}</textarea></div>
+    <div class="err" id="c-err" hidden></div>
+    <footer><button class="btn primary" type="submit">${isNew ? "הוספת מטופל" : "שמירת שינויים"}</button>${isNew ? "" : '<button class="btn danger" type="button" id="c-del">מחיקת המטופל</button>'}</footer>
+    ${!isNew && count ? `<span class="hint">למטופל ${count} טיפולים ביומן. כדי למחוק אותו צריך קודם למחוק את הטיפולים שלו.</span>` : ""}
+  `, async () => {
+    const name = $("c-name").value.trim(), err = $("c-err");
+    if (!name) { err.textContent = "צריך למלא שם."; err.hidden = false; return; }
+    const dup = findClientByName(name);
+    if (dup && dup.id !== c.id) { err.textContent = "כבר קיים מטופל בשם הזה."; err.hidden = false; return; }
+    const data = { name, code: $("c-code").value.trim(), price: +$("c-price").value || 0, phone: $("c-phone").value.trim(), notes: $("c-notes").value.trim() };
+    if (c.example) data.example = true;
+    try { await put("clients", isNew ? newId() : c.id, data); closeSheet(); toast(isNew ? "המטופל נוסף" : "השינויים נשמרו"); }
+    catch (e) { writeError(e); }
+  }, () => {
+    const del = $("c-del");
+    if (del) { if (count) del.disabled = true; else armDelete(del, async () => { try { await remove("clients", c.id); closeSheet(); toast("המטופל נמחק"); } catch (e) { writeError(e); } }); }
+  });
+}
+
+async function clearExamples() {
+  const btn = $("btn-clear-ex"); if (btn) btn.disabled = true;
+  try {
+    for (const t of [...state.treatments.values()]) if (t.example) await remove("treatments", t.id);
+    for (const c of [...state.clients.values()]) if (c.example) await remove("clients", c.id);
+    toast("נתוני הדוגמה נמחקו");
+  } catch (e) { writeError(e); if (btn) btn.disabled = false; }
+}
+
+/* ---------- CSV import / export ---------- */
+function parseCSV(text) {
+  text = text.replace(/^﻿/, "");
+  const firstLine = text.split("\n")[0];
+  const delim = (firstLine.split("\t").length > firstLine.split(",").length) ? "\t" : ",";
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(f); f = ""; }
+    else if (ch === "\n") { row.push(f); rows.push(row); row = []; f = ""; }
+    else if (ch !== "\r") f += ch;
+  }
+  if (f !== "" || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+const cellVal = (s) => { s = (s || "").trim(); return /^#(N\/A|REF!|VALUE!|DIV\/0!|NAME\?)/i.test(s) ? "" : s; };
+const parseNum = (s) => { const n = parseFloat(cellVal(s).replace(/[^\d.\-]/g, "")); return isNaN(n) ? 0 : n; };
+function parseDate(s) {
+  s = cellVal(s); let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/))) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`; }
+  return "";
+}
+function normMethod(s) {
+  s = cellVal(s); if (!s) return "";
+  if (METHODS.includes(s)) return s;
+  if (s.includes("לא שולם")) return M_UNPAID;
+  if (s.includes("לא הוצא")) return M_NOINV;
+  if (s.includes("שולם")) return M_INVOICE;
+  return s;
+}
+
+function analyzeImport(rows) {
+  const hi = rows.findIndex((r) => r.some((c) => c.includes("שם")));
+  if (hi < 0) return { error: "לא מצאתי שורת כותרות עם העמודה \"שם מטופל\"." };
+  const h = rows[hi].map((c) => c.trim());
+  const idx = (pred) => h.findIndex(pred);
+  const col = {
+    name: idx((c) => c.includes("שם")),
+    code: idx((c) => c.includes("קוד")),
+    date: idx((c) => c.includes("תאריך") && c.includes("טיפול")),
+    payDate: idx((c) => c.includes("תאריך") && c.includes("תשל")),
+    cost: idx((c) => c.includes("עלות")),
+    paid: idx((c) => c.includes("סכום") || c.includes("ששולם")),
+    method: idx((c) => c.includes("אמצעי")),
+  };
+  const get = (r, k) => (col[k] >= 0 ? r[col[k]] || "" : "");
+  const newClients = new Map(), items = [];
+  for (const r of rows.slice(hi + 1)) {
+    const name = cellVal(get(r, "name")); if (!name) continue;
+    const date = parseDate(get(r, "date")), cost = parseNum(get(r, "cost")), paid = parseNum(get(r, "paid"));
+    if (!date && !cost && !paid) continue;
+    let client = findClientByName(name) || newClients.get(name);
+    if (!client) { client = { id: newId(), name, code: cellVal(get(r, "code")), phone: "", price: cost || 0, notes: "" }; newClients.set(name, client); }
+    items.push({ clientId: client.id, date, cost, paid, method: normMethod(get(r, "method")), payDate: parseDate(get(r, "payDate")), notes: "" });
+  }
+  return { newClients: [...newClients.values()], items };
+}
+
+function importFlow(text) {
+  const res = analyzeImport(parseCSV(text));
+  const body = res.error
+    ? `<div class="err">${esc(res.error)}</div><span class="hint">ודאו שהקובץ יוצא מהגיליון עם שורת הכותרות (שם מטופל, קוד, תאריך טיפול, תאריך תשלום, עלות, סכום ששולם, אמצעי תשלום).</span>`
+    : `<p>נמצאו <strong>${res.items.length}</strong> טיפולים ו-<strong>${res.newClients.length}</strong> מטופלים חדשים.</p>
+       <span class="hint">מטופלים שכבר קיימים ביומן יקושרו לפי השם. ייבוא חוזר של אותו קובץ ייצור כפילויות.</span>
+       ${res.items.length ? `<div class="scroll"><table><thead><tr><th>שם</th><th>תאריך</th><th class="n">עלות</th><th class="n">שולם</th></tr></thead><tbody>${res.items.slice(0, 6).map((it) => {
+         const c = state.clients.get(it.clientId) || res.newClients.find((x) => x.id === it.clientId);
+         return `<tr><td>${esc(c.name)}</td><td class="num">${fmtDate(it.date)}</td><td class="n">${money(it.cost)}</td><td class="n">${money(it.paid)}</td></tr>`; }).join("")}</tbody></table></div>` : ""}
+       <div class="hint" id="imp-progress"></div>`;
+  openSheet(`<header><h2>ייבוא מהגיליון</h2><button class="btn small" type="button" data-close>סגירה</button></header>${body}
+    <footer>${!res.error && res.items.length ? `<button class="btn primary" type="submit" id="imp-go">ייבוא ${res.items.length} טיפולים</button>` : ""}<button class="btn" type="button" data-close>ביטול</button></footer>`,
+    async () => {
+      if (res.error || !res.items.length) return;
+      const go = $("imp-go"); go.disabled = true;
+      const used = new Set([...state.clients.values()].map((c) => String(c.code)));
+      let next = parseInt(nextCode(), 10);
+      try {
+        for (const c of res.newClients) {
+          if (!c.code || used.has(String(c.code))) { while (used.has(String(next))) next++; c.code = String(next); }
+          used.add(String(c.code));
+          await put("clients", c.id, clean(c)); state.clients.set(c.id, c);
+        }
+        let i = 0;
+        for (const it of res.items) { await put("treatments", newId(), it); i++; if (i % 5 === 0) $("imp-progress").textContent = `נשמרו ${i} מתוך ${res.items.length}…`; }
+        closeSheet(); toast(`יובאו ${res.items.length} טיפולים`);
+      } catch (e) { writeError(e); go.disabled = false; }
+    });
+}
+
+$("btn-import").onclick = () => $("csv-file").click();
+$("csv-file").addEventListener("change", () => {
+  const file = $("csv-file").files[0]; if (!file) return;
+  const r = new FileReader(); r.onload = () => { importFlow(String(r.result)); $("csv-file").value = ""; }; r.readAsText(file, "utf-8");
+});
+
+$("btn-export").onclick = async () => {
+  const q = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "אמצעי תשלום", "יתרה", "הערות"].join(",")];
+  for (const t of sortedTreatments().reverse()) {
+    const cl = clientOf(t), c = calc(t);
+    lines.push([cl.name, cl.code, fmtDate(t.date), fmtDate(t.payDate), c.cost, c.paid, t.method, c.bal, t.notes].map(q).join(","));
+  }
+  const url = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a"); a.href = url; a.download = `yoman-metuplim-${today()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+/* ---------- events ---------- */
+document.querySelectorAll(".tab").forEach((t) => (t.onclick = () => { state.view = t.dataset.view; try { localStorage.setItem("view", state.view); } catch {} render(); }));
+$("btn-new-t").onclick = () => treatmentForm(null);
+$("btn-new-c").onclick = () => clientForm(null);
+$("flt-method").innerHTML += METHODS.map((m) => `<option>${esc(m)}</option>`).join("") + `<option value="_none">לא צוין</option>`;
+for (const [id, key] of [["flt-q", "q"], ["flt-status", "status"], ["flt-method", "method"], ["flt-month", "month"]])
+  $(id).addEventListener("input", () => { state.f[key] = $(id).value; render(); });
+$("flt-clear").onclick = () => { state.f = { q: "", status: "", method: "", month: "" }; ["flt-q", "flt-status", "flt-method", "flt-month"].forEach((id) => ($(id).value = "")); render(); };
+
+$("view").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const act = b.dataset.act;
+  if (act === "edit-t") treatmentForm(state.treatments.get(b.dataset.id));
+  else if (act === "edit-c") clientForm(state.clients.get(b.dataset.id));
+  else if (act === "new-t") treatmentForm(null);
+  else if (act === "new-c") clientForm(null);
+  else if (act === "import") $("csv-file").click();
+  else if (act === "signin") signIn();
+  else if (act === "new-t-for") treatmentForm(null, b.dataset.name);
+  else if (act === "filter-client" || act === "open-client") {
+    state.f.q = b.dataset.name; $("flt-q").value = b.dataset.name; state.view = "treatments"; render();
+  }
+});
+
+try { const v = localStorage.getItem("view"); if (["treatments", "clients", "months"].includes(v)) state.view = v; } catch {}
+render();
+connect();
+</script>
+</body>
+</html>
