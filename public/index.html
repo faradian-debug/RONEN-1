@@ -263,7 +263,7 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
             <div class="field client-f"><label for="q-client">שם מטופל</label><input id="q-client" list="clients-dl" placeholder="הקלידו או בחרו מהרשימה" required><span class="hint" id="q-client-hint"></span></div>
             <div class="field"><label for="q-date">תאריך טיפול</label><input id="q-date" type="date" required><span class="hint"></span></div>
             <div class="field"><label for="q-cost">עלות (₪)</label><input id="q-cost" type="number" inputmode="decimal" min="0" step="1" placeholder="0"><span class="hint"></span></div>
-            <div class="field"><label for="q-method">אמצעי תשלום</label><select id="q-method"></select><span class="hint"></span></div>
+            <div class="field"><label for="q-method">סטטוס תשלום</label><select id="q-method"></select><span class="hint"></span></div>
             <div class="field"><label for="q-paid">סכום ששולם (₪)</label><input id="q-paid" type="number" inputmode="decimal" min="0" step="1" placeholder="0"><span class="hint"></span></div>
             <div class="field"><label for="q-paydate">תאריך תשלום</label><input id="q-paydate" type="date"><span class="hint"></span></div>
             <div class="field notes-f"><label for="q-notes">הערות</label><input id="q-notes" placeholder="לא חובה"></div>
@@ -276,12 +276,12 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
           <div class="toolbar">
             <input type="search" id="flt-q" placeholder="חיפוש לפי שם או קוד" aria-label="חיפוש">
             <select id="flt-status" aria-label="סטטוס תשלום">
-              <option value="">כל הסטטוסים</option>
+              <option value="">כל היתרות</option>
               <option value="open">חוב פתוח</option>
               <option value="paid">שולם במלואו</option>
               <option value="noinv">שולם ללא חשבונית</option>
             </select>
-            <select id="flt-method" aria-label="אמצעי תשלום"><option value="">כל אמצעי התשלום</option></select>
+            <select id="flt-method" aria-label="סטטוס תשלום"><option value="">כל סטטוסי התשלום</option></select>
             <input type="month" id="flt-month" aria-label="חודש">
             <button class="btn small ghost" id="flt-clear" type="button">ניקוי סינון</button>
             <span class="spacer"></span>
@@ -545,7 +545,7 @@ function renderTreatments() {
     </tr>`;
   }).join("");
   box.innerHTML = `<div class="scroll"><table>
-    <thead><tr><th>שם מטופל</th><th>קוד</th><th>תאריך טיפול</th><th>תאריך תשלום</th><th class="n">עלות</th><th class="n">סכום ששולם</th><th>אמצעי תשלום</th><th class="n">יתרה</th><th>הערות</th><th></th></tr></thead>
+    <thead><tr><th>שם מטופל</th><th>קוד</th><th>תאריך טיפול</th><th>תאריך תשלום</th><th class="n">עלות</th><th class="n">סכום ששולם</th><th>סטטוס תשלום</th><th class="n">יתרה</th><th>הערות</th><th></th></tr></thead>
     <tbody>${body || `<tr><td colspan="10" class="muted" style="text-align:center;padding:28px">אין טיפולים שמתאימים לסינון</td></tr>`}</tbody>
     <tfoot><tr><td colspan="4">${rows.length} טיפולים</td><td class="n">${money(tc)}</td><td class="n">${money(tp)}</td><td></td><td class="n">${tb ? money(tb) : "—"}</td><td colspan="2"></td></tr></tfoot>
   </table></div>`;
@@ -676,7 +676,7 @@ async function saveTreatment(p, existing) {
   if (!nm) throw { user: "צריך למלא שם מטופל.", field: p + "-client" };
   if (!date) throw { user: "צריך למלא תאריך טיפול.", field: p + "-date" };
   const paid = +$(p + "-paid").value || 0, method = $(p + "-method").value, payDate = $(p + "-paydate").value;
-  if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו אמצעי תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
+  if (method === M_UNPAID && paid > 0) throw { user: "נבחר \"לא שולם\" אבל הוזן סכום ששולם. בחרו סטטוס תשלום אחר או אפסו את הסכום ששולם.", field: p + "-method" };
   if ((paid > 0 || (method && method !== M_UNPAID)) && !payDate) throw { user: "חסר תאריך תשלום. אי אפשר לשמור תשלום בלי התאריך שבו התקבל.", field: p + "-paydate" };
   let client = findClientByName(nm);
   if (!client) {
@@ -734,7 +734,7 @@ function treatmentSheet(t) {
       <div class="field"><label for="f-date">תאריך טיפול</label><input id="f-date" type="date" value="${esc(t.date || "")}" required></div>
       <div class="field"><label for="f-cost">עלות (₪)</label><input id="f-cost" type="number" inputmode="decimal" min="0" step="1" value="${esc(t.cost ?? "")}"></div>
     </div>
-    <div class="field"><label for="f-method">אמצעי תשלום</label><select id="f-method">${methodOptions(t.method)}</select></div>
+    <div class="field"><label for="f-method">סטטוס תשלום</label><select id="f-method">${methodOptions(t.method)}</select></div>
     <div class="row2">
       <div class="field"><label for="f-paid">סכום ששולם (₪)</label><input id="f-paid" type="number" inputmode="decimal" min="0" step="1" value="${esc(t.paid ?? "")}"></div>
       <div class="field"><label for="f-paydate">תאריך תשלום</label><input id="f-paydate" type="date" value="${esc(t.payDate || "")}"></div>
@@ -826,7 +826,7 @@ function analyzeImport(rows) {
     payDate: idx((c) => c.includes("תאריך") && c.includes("תשל")),
     cost: idx((c) => c.includes("עלות")),
     paid: idx((c) => c.includes("סכום") || c.includes("ששולם")),
-    method: idx((c) => c.includes("אמצעי")),
+    method: idx((c) => c.includes("אמצעי") || c.includes("סטטוס")),
   };
   const get = (r, k) => (col[k] >= 0 ? r[col[k]] || "" : "");
   const newClients = new Map(), items = [];
@@ -844,7 +844,7 @@ function analyzeImport(rows) {
 function importFlow(text) {
   const res = analyzeImport(parseCSV(text));
   const body = res.error
-    ? `<div class="err">${esc(res.error)}</div><span class="muted">ודאו שהקובץ יוצא מהגיליון עם שורת הכותרות (שם מטופל, קוד, תאריך טיפול, תאריך תשלום, עלות, סכום ששולם, אמצעי תשלום).</span>`
+    ? `<div class="err">${esc(res.error)}</div><span class="muted">ודאו שהקובץ יוצא מהגיליון עם שורת הכותרות (שם מטופל, קוד, תאריך טיפול, תאריך תשלום, עלות, סכום ששולם, סטטוס או אמצעי תשלום).</span>`
     : `<p style="margin:0">נמצאו <strong>${res.items.length}</strong> טיפולים ו-<strong>${res.newClients.length}</strong> מטופלים חדשים.</p>
        <span class="muted" style="font-size:.85rem">מטופלים שכבר קיימים ביומן יקושרו לפי השם. ייבוא חוזר של אותו קובץ ייצור כפילויות.</span>
        ${res.items.length ? `<div class="scroll preview"><table><thead><tr><th>שם</th><th>תאריך</th><th class="n">עלות</th><th class="n">שולם</th></tr></thead><tbody>${res.items.slice(0, 6).map((it) => {
@@ -879,7 +879,7 @@ $("csv-file").addEventListener("change", () => {
 
 $("btn-export").onclick = () => {
   const q = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
-  const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "אמצעי תשלום", "יתרה", "הערות"].join(",")];
+  const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "סטטוס תשלום", "יתרה", "הערות"].join(",")];
   for (const t of sortedTreatments().reverse()) {
     const cl = clientOf(t), c = calc(t);
     lines.push([cl.name, cl.code, fmtDate(t.date), fmtDate(t.payDate), c.cost, c.paid, t.method, c.bal, t.notes].map(q).join(","));
