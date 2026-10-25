@@ -261,6 +261,7 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
       </nav>
       <div class="user" id="who" hidden>
         <select class="journal" id="journal" aria-label="איזה יומן לפתוח" hidden></select>
+        <span class="journal" id="journal-name" hidden></span>
         <button class="btn small" id="btn-share" type="button" hidden>שיתוף</button>
         <span class="avatar" id="who-avatar"></span>
         <span class="name" id="who-name"></span>
@@ -361,7 +362,7 @@ const state = {
 };
 // uid = who is signed in; ownerUid = whose journal is open (theirs, or one shared with them).
 let fs = null, auth = null, me = null, uid = null, ownerUid = null, unsubs = [];
-let journals = [], members = [], inviteUnsub = null, metaUnsub = null, autoOpened = false;
+let journals = [], members = [], inviteUnsub = null, metaUnsub = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -439,58 +440,59 @@ function connect() {
   onAuthStateChanged(auth, (user) => {
     stopListening();
     if (inviteUnsub) inviteUnsub(); if (metaUnsub) metaUnsub(); inviteUnsub = metaUnsub = null;
-    me = user; uid = user ? user.uid : null; journals = []; members = []; autoOpened = false;
+    me = user; uid = user ? user.uid : null; ownerUid = null; journals = []; members = [];
     showUser(user);
-    if (!user) { state.mode = "signedout"; ownerUid = null; renderJournalPicker(); render(); return; }
-    state.mode = "live";
+    if (!user) { state.mode = "signedout"; renderJournalPicker(); render(); return; }
+    state.mode = "live"; render();
+    let metaReady = false, invitesReady = false;
+    const decide = () => { if (metaReady && invitesReady) pickJournal(); };
+    // Who this user shares their own journal with.
+    metaUnsub = onSnapshot(doc(fs, "users", uid), (s) => {
+      members = (s.exists() && s.data().members) || []; renderMembers(); metaReady = true; decide();
+    }, (e) => { console.error(e); metaReady = true; decide(); });
     // Journals other people shared with this user's email.
     inviteUnsub = onSnapshot(query(collection(fs, "invites"), where("email", "==", (user.email || "").toLowerCase())), (snap) => {
-      journals = snap.docs.map((d) => d.data()).filter((j) => j.ownerUid !== uid);
-      if (ownerUid && ownerUid !== uid && !journals.some((j) => j.ownerUid === ownerUid)) { toast("הגישה ליומן המשותף הוסרה", 5000); openJournal(uid); }
-      else { renderJournalPicker(); maybeOpenShared(); }
-    }, (e) => { console.error(e); toast("לא הצלחתי לבדוק אם שיתפו איתך יומן. רעננו את הדף.", 5000); });
-    let saved = null; try { saved = localStorage.getItem("journal"); } catch {}
-    openJournal(saved || uid);
+      journals = snap.docs.map((d) => d.data()).filter((j) => j.ownerUid !== uid); invitesReady = true; decide();
+    }, (e) => { console.error(e); toast("לא הצלחתי לבדוק אם שיתפו איתך יומן. רעננו את הדף.", 5000); invitesReady = true; decide(); });
   });
+}
+
+// One journal per team: someone who was invited (and shares nothing themselves) always works
+// in the inviter's journal; everyone else works in their own.
+function pickJournal() {
+  const shared = !members.length && journals.length ? (journals.find((j) => j.ownerUid === ownerUid) || journals[0]) : null;
+  const target = shared ? shared.ownerUid : uid;
+  if (target === ownerUid) { renderJournalPicker(); return; }
+  if (ownerUid && ownerUid !== uid && target === uid) toast("הגישה ליומן המשותף הוסרה", 5000);
+  openJournal(target);
 }
 
 function openJournal(o) {
   stopListening();
-  if (metaUnsub) { metaUnsub(); metaUnsub = null; }
-  ownerUid = o; members = [];
-  try { localStorage.setItem("journal", o); } catch {}
+  ownerUid = o;
   for (const col of ["clients", "treatments"]) {
     unsubs.push(onSnapshot(collection(fs, "users", o, col), (snap) => {
       state[col] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
       state.loaded[col] = true;
-      render(); maybeOpenShared();
+      render();
     }, (e) => {
       console.error(e);
-      if (o !== uid) { if (ownerUid === o) { toast("אין לך גישה ליומן הזה. עברת ליומן שלך.", 5000); openJournal(uid); } }
-      else toast("לא הצלחתי לטעון את הנתונים מ-Firebase.", 5000);
+      toast(o === uid ? "לא הצלחתי לטעון את הנתונים מ-Firebase." : "אין לך גישה ליומן המשותף. רעננו את הדף.", 5000);
     }));
   }
-  if (o === uid) metaUnsub = onSnapshot(doc(fs, "users", uid), (s) => { members = (s.exists() && s.data().members) || []; renderMembers(); }, (e) => console.error(e));
   renderJournalPicker(); render();
 }
 
-// A partner with an empty journal of their own lands straight in the journal shared with them.
-function maybeOpenShared() {
-  if (autoOpened || ownerUid !== uid || !journals.length || !state.loaded.clients) return;
-  autoOpened = true;
-  if (state.clients.size) return;
-  const j = journals[0];
-  openJournal(j.ownerUid);
-  toast(`נפתח היומן המשותף של ${j.ownerName || j.ownerEmail}`, 4000);
-}
-
 function renderJournalPicker() {
+  const shared = uid && ownerUid && ownerUid !== uid ? journals.find((j) => j.ownerUid === ownerUid) : null;
   const sel = $("journal");
-  sel.hidden = !uid || !journals.length;
+  sel.hidden = !shared || journals.length < 2; // only a partner of several journals chooses
   if (!sel.hidden) {
-    sel.innerHTML = `<option value="${esc(uid)}">היומן שלי</option>` + journals.map((j) => `<option value="${esc(j.ownerUid)}">היומן של ${esc(j.ownerName || j.ownerEmail)}</option>`).join("");
+    sel.innerHTML = journals.map((j) => `<option value="${esc(j.ownerUid)}">היומן של ${esc(j.ownerName || j.ownerEmail)}</option>`).join("");
     sel.value = ownerUid;
   }
+  $("journal-name").hidden = !shared || !sel.hidden;
+  if (shared) $("journal-name").textContent = `יומן משותף · ${shared.ownerName || shared.ownerEmail}`;
   $("btn-share").hidden = !uid || ownerUid !== uid;
 }
 $("journal").addEventListener("change", () => openJournal($("journal").value));
