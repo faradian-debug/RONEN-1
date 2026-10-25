@@ -25,7 +25,10 @@ service cloud.firestore {
 
     // Lets a partner find the journals shared with them. Id: <ownerUid>_<email>.
     match /invites/{inviteId} {
-      allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.email == myEmail());
+      // A partner lists invites with where("email", "==", theirEmail); keep that rule a single
+      // condition so Firestore can prove the query safe from its filter alone.
+      allow list: if signedIn() && resource.data.email == myEmail();
+      allow get: if signedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.email == myEmail());
       allow create, update: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
         && inviteId == request.auth.uid + '_' + request.resource.data.email;
