@@ -492,7 +492,25 @@ function renderMembers() {
     ? members.map((m) => `<div class="member"><span dir="ltr">${esc(m)}</span><button class="btn small danger" type="button" data-act="unshare" data-email="${esc(m)}">הסרת גישה</button></div>`).join("")
     : `<span class="muted">עדיין לא שיתפת את היומן עם אף אחד.</span>`;
 }
+// Catches typos like "gmai.com" by comparing the domain with common mail providers.
+const KNOWN_DOMAINS = ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "icloud.com", "live.com", "walla.co.il", "walla.com"];
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function suggestEmail(email) {
+  const [user, domain] = email.split("@");
+  if (!domain || KNOWN_DOMAINS.includes(domain)) return null;
+  let best = null, dist = 3;
+  for (const k of KNOWN_DOMAINS) { const x = editDistance(domain, k); if (x < dist) { dist = x; best = k; } }
+  return best ? `${user}@${best}` : null;
+}
+
 function shareSheet() {
+  let acceptedAsIs = null; // an email the user re-submitted after the typo warning
   openSheet(`
     <header><h2>שיתוף היומן</h2><button class="btn small" type="button" data-close>סגירה</button></header>
     <span class="muted" style="font-size:.9rem">מי שתוסיפו יראה את כל המטופלים והטיפולים, יוכל להוסיף ולערוך, וכל שינוי יופיע מיד אצל כולם. הוא נכנס ל-<b dir="ltr">ronen-1.web.app</b> עם חשבון ה-Google של המייל שהוספתם, ובוחר בראש המסך את היומן שלכם.</span>
@@ -504,8 +522,21 @@ function shareSheet() {
   `, async () => {
     const email = $("s-email").value.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showFormError("s-err", { user: "כתובת המייל לא תקינה.", field: "s-email" });
-    if (email === (me.email || "").toLowerCase()) return showFormError("s-err", { user: "זה המייל שלך. הזינו את המייל של מי שרוצים לשתף.", field: "s-email" });
+    if (email === ((me && me.email) || "").toLowerCase()) return showFormError("s-err", { user: "זה המייל שלך. הזינו את המייל של מי שרוצים לשתף.", field: "s-email" });
     if (members.includes(email)) return showFormError("s-err", { user: "למייל הזה כבר יש גישה.", field: "s-email" });
+    const fix = suggestEmail(email);
+    if (fix && acceptedAsIs !== email) {
+      acceptedAsIs = email;
+      const err = $("s-err");
+      err.className = "err warnbox"; err.hidden = false;
+      err.innerHTML = `<span>נראה שיש טעות הקלדה במייל. התכוונתם ל-<b dir="ltr">${esc(fix)}</b>?<br>
+        <button class="btn small primary" type="button" id="s-fix" style="margin-top:8px">תיקון ל-<span dir="ltr">${esc(fix)}</span></button>
+        <span style="font-weight:400"> או לחצו שוב "הוספת שותף" כדי להוסיף כמו שכתוב.</span></span>`;
+      $("s-email").classList.add("invalid");
+      $("s-fix").onclick = () => { $("s-email").value = fix; $("s-email").classList.remove("invalid"); err.hidden = true; $("s-email").focus(); };
+      return;
+    }
+    $("s-err").hidden = true;
     $("s-go").disabled = true;
     try {
       await setDoc(doc(fs, "invites", uid + "_" + email), { email, ownerUid: uid, ownerName: me.displayName || "", ownerEmail: (me.email || "").toLowerCase() });
