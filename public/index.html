@@ -106,6 +106,11 @@ button:disabled { cursor: default; opacity: .55; }
 .user .name { color: var(--bar-ink); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user .btn { background: transparent; color: var(--bar-ink); border-color: rgba(255, 255, 255, .25); }
 .user .btn:hover { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .45); }
+.journal { background: rgba(255, 255, 255, .1); color: var(--bar-ink); border: 1px solid rgba(255, 255, 255, .3); border-radius: 8px; padding: 5px 8px; font-weight: 600; max-width: 200px; }
+.journal option { color: var(--ink); background: var(--surface); }
+.members { display: grid; gap: 8px; }
+.member { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.member span { overflow-wrap: anywhere; }
 
 /* page */
 main.container { display: grid; gap: 20px; padding-block: 24px 64px; }
@@ -255,6 +260,8 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
         <button role="tab" id="tab-months" data-view="months" type="button">סיכום חודשי</button>
       </nav>
       <div class="user" id="who" hidden>
+        <select class="journal" id="journal" aria-label="איזה יומן לפתוח" hidden></select>
+        <button class="btn small" id="btn-share" type="button" hidden>שיתוף</button>
         <span class="avatar" id="who-avatar"></span>
         <span class="name" id="who-name"></span>
         <button class="btn small" id="btn-signout" type="button">יציאה</button>
@@ -335,7 +342,7 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
 import { firebaseConfig } from "./firebase-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, where, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const METHODS = ["שולם הוצאה חשבונית", "שולם לא הוצאה חשבונית", "לא שולם"];
 const PAYWAYS = ["מזומן", "ביט", "פייבוקס", "הפקדה בבנק"];
@@ -352,7 +359,9 @@ const state = {
   f: { q: "", status: "", method: "", month: "" },
   cq: "",
 };
-let fs = null, auth = null, uid = null, unsubs = [];
+// uid = who is signed in; ownerUid = whose journal is open (theirs, or one shared with them).
+let fs = null, auth = null, me = null, uid = null, ownerUid = null, unsubs = [];
+let journals = [], members = [], inviteUnsub = null, metaUnsub = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -385,14 +394,14 @@ function nextCode() {
 const findClientByName = (name) => { const n = name.trim(); for (const c of state.clients.values()) if (c.name.trim() === n) return c; return null; };
 
 /* ---------- persistence ---------- */
-// Every user's data lives under users/{uid}/ — see firestore.rules.
+// Every journal lives under users/{ownerUid}/ — see firestore.rules.
 async function put(col, id, data) {
-  if (fs && uid) { await setDoc(doc(fs, "users", uid, col, id), data); return; }
+  if (fs && ownerUid) { await setDoc(doc(fs, "users", ownerUid, col, id), data); return; }
   if (state.mode === "live" || state.mode === "signedout") throw { code: "not-signed-in" };
   state[col].set(id, { id, ...data }); render();
 }
 async function remove(col, id) {
-  if (fs && uid) { await deleteDoc(doc(fs, "users", uid, col, id)); return; }
+  if (fs && ownerUid) { await deleteDoc(doc(fs, "users", ownerUid, col, id)); return; }
   if (state.mode === "live" || state.mode === "signedout") throw { code: "not-signed-in" };
   state[col].delete(id); render();
 }
@@ -429,20 +438,93 @@ function connect() {
   getRedirectResult(auth).catch((e) => loginError(e));
   onAuthStateChanged(auth, (user) => {
     stopListening();
-    uid = user ? user.uid : null;
+    if (inviteUnsub) inviteUnsub(); if (metaUnsub) metaUnsub(); inviteUnsub = metaUnsub = null;
+    me = user; uid = user ? user.uid : null; journals = []; members = [];
     showUser(user);
-    if (!user) { state.mode = "signedout"; render(); return; }
+    if (!user) { state.mode = "signedout"; ownerUid = null; renderJournalPicker(); render(); return; }
     state.mode = "live";
-    for (const col of ["clients", "treatments"]) {
-      unsubs.push(onSnapshot(collection(fs, "users", uid, col), (snap) => {
-        state[col] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
-        state.loaded[col] = true;
-        render();
-      }, (e) => { console.error(e); toast("לא הצלחתי לטעון את הנתונים מ-Firebase.", 5000); }));
-    }
-    render();
+    // Journals other people shared with this user's email.
+    inviteUnsub = onSnapshot(query(collection(fs, "invites"), where("email", "==", (user.email || "").toLowerCase())), (snap) => {
+      journals = snap.docs.map((d) => d.data()).filter((j) => j.ownerUid !== uid);
+      if (ownerUid && ownerUid !== uid && !journals.some((j) => j.ownerUid === ownerUid)) { toast("הגישה ליומן המשותף הוסרה", 5000); openJournal(uid); }
+      else renderJournalPicker();
+    }, (e) => console.error(e));
+    let saved = null; try { saved = localStorage.getItem("journal"); } catch {}
+    openJournal(saved || uid);
   });
 }
+
+function openJournal(o) {
+  stopListening();
+  if (metaUnsub) { metaUnsub(); metaUnsub = null; }
+  ownerUid = o; members = [];
+  try { localStorage.setItem("journal", o); } catch {}
+  for (const col of ["clients", "treatments"]) {
+    unsubs.push(onSnapshot(collection(fs, "users", o, col), (snap) => {
+      state[col] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+      state.loaded[col] = true;
+      render();
+    }, (e) => {
+      console.error(e);
+      if (o !== uid) { if (ownerUid === o) { toast("אין לך גישה ליומן הזה. עברת ליומן שלך.", 5000); openJournal(uid); } }
+      else toast("לא הצלחתי לטעון את הנתונים מ-Firebase.", 5000);
+    }));
+  }
+  if (o === uid) metaUnsub = onSnapshot(doc(fs, "users", uid), (s) => { members = (s.exists() && s.data().members) || []; renderMembers(); }, (e) => console.error(e));
+  renderJournalPicker(); render();
+}
+
+function renderJournalPicker() {
+  const sel = $("journal");
+  sel.hidden = !uid || !journals.length;
+  if (!sel.hidden) {
+    sel.innerHTML = `<option value="${esc(uid)}">היומן שלי</option>` + journals.map((j) => `<option value="${esc(j.ownerUid)}">היומן של ${esc(j.ownerName || j.ownerEmail)}</option>`).join("");
+    sel.value = ownerUid;
+  }
+  $("btn-share").hidden = !uid || ownerUid !== uid;
+}
+$("journal").addEventListener("change", () => openJournal($("journal").value));
+
+/* ---------- sharing ---------- */
+function renderMembers() {
+  const box = $("s-list"); if (!box) return;
+  box.innerHTML = members.length
+    ? members.map((m) => `<div class="member"><span dir="ltr">${esc(m)}</span><button class="btn small danger" type="button" data-act="unshare" data-email="${esc(m)}">הסרת גישה</button></div>`).join("")
+    : `<span class="muted">עדיין לא שיתפת את היומן עם אף אחד.</span>`;
+}
+function shareSheet() {
+  openSheet(`
+    <header><h2>שיתוף היומן</h2><button class="btn small" type="button" data-close>סגירה</button></header>
+    <span class="muted" style="font-size:.9rem">מי שתוסיפו יראה את כל המטופלים והטיפולים, יוכל להוסיף ולערוך, וכל שינוי יופיע מיד אצל כולם. הוא נכנס ל-<b dir="ltr">ronen-1.web.app</b> עם חשבון ה-Google של המייל שהוספתם, ובוחר בראש המסך את היומן שלכם.</span>
+    <div class="field"><label for="s-email">מייל של חשבון Google</label><input id="s-email" type="email" dir="ltr" style="text-align:right" placeholder="name@gmail.com" autocomplete="off"></div>
+    <div class="err" id="s-err" hidden></div>
+    <footer><button class="btn primary" type="submit" id="s-go">הוספת שותף</button></footer>
+    <h3 style="font-size:1rem;margin-top:8px">יש גישה ליומן</h3>
+    <div id="s-list" class="members"></div>
+  `, async () => {
+    const email = $("s-email").value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showFormError("s-err", { user: "כתובת המייל לא תקינה.", field: "s-email" });
+    if (email === (me.email || "").toLowerCase()) return showFormError("s-err", { user: "זה המייל שלך. הזינו את המייל של מי שרוצים לשתף.", field: "s-email" });
+    if (members.includes(email)) return showFormError("s-err", { user: "למייל הזה כבר יש גישה.", field: "s-email" });
+    $("s-go").disabled = true;
+    try {
+      await setDoc(doc(fs, "invites", uid + "_" + email), { email, ownerUid: uid, ownerName: me.displayName || "", ownerEmail: (me.email || "").toLowerCase() });
+      await setDoc(doc(fs, "users", uid), { members: arrayUnion(email) }, { merge: true });
+      $("s-email").value = ""; toast(`${email} יכול עכשיו לראות ולעדכן את היומן`, 4000);
+    } catch (e) { writeError(e); }
+    finally { $("s-go").disabled = false; }
+  }, () => renderMembers());
+}
+async function unshare(btn) {
+  if (!btn.classList.contains("armed")) { btn.classList.add("armed"); btn.textContent = "לחיצה נוספת תסיר"; return; }
+  const email = btn.dataset.email; btn.disabled = true;
+  try {
+    await setDoc(doc(fs, "users", uid), { members: arrayRemove(email) }, { merge: true });
+    await deleteDoc(doc(fs, "invites", uid + "_" + email));
+    toast(`הגישה של ${email} הוסרה`);
+  } catch (e) { writeError(e); btn.disabled = false; }
+}
+$("btn-share").onclick = shareSheet;
 
 function loginError(e) {
   const code = (e && e.code) || "";
@@ -1066,6 +1148,7 @@ document.addEventListener("click", (e) => {
   else if (act === "edit-c") clientSheet(state.clients.get(b.dataset.id));
   else if (act === "pay") paymentSheet(b.dataset.id);
   else if (act === "del-c") deleteClientSheet(b.dataset.id);
+  else if (act === "unshare") unshare(b);
   else if (act === "new-c") clientSheet(null);
   else if (act === "import") $("csv-file").click();
   else if (act === "new-t-for") {

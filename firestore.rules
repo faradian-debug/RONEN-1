@@ -1,9 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in user reads and writes only their own clients and treatments.
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    // A partner is someone whose verified Google email the owner listed in users/{uid}.members.
+    function isPartner(uid) {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && myEmail() in get(/databases/$(database)/documents/users/$(uid)).data.get('members', []);
+    }
+
+    match /users/{uid} {
+      // The journal's settings (its partner list); only the owner changes them.
+      allow read: if isOwner(uid) || isPartner(uid);
+      allow write: if isOwner(uid);
+
+      // Clients and treatments: the owner and their partners read and write.
+      match /{col}/{docId} {
+        allow read, write: if isOwner(uid) || isPartner(uid);
+      }
+    }
+
+    // Lets a partner find the journals shared with them. Id: <ownerUid>_<email>.
+    match /invites/{inviteId} {
+      allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || resource.data.email == myEmail());
+      allow create, update: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && inviteId == request.auth.uid + '_' + request.resource.data.email;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
   }
 }
