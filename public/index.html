@@ -362,14 +362,16 @@ const state = {
 };
 // uid = who is signed in; ownerUid = whose journal is open (theirs, or one shared with them).
 let fs = null, auth = null, me = null, uid = null, ownerUid = null, unsubs = [];
-let journals = [], members = [], inviteUnsub = null, metaUnsub = null;
+// joined = the shared journal this user agreed to work in; other invites wait for their approval.
+let journals = [], members = [], joined = null, inviteUnsub = null, metaUnsub = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const nis = new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
 const money = (n) => nis.format(Math.round(n || 0));
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-const fmtDate = (iso) => { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; };
+// Dates come from the shared database, so anything that isn't a plain YYYY-MM-DD is escaped before it reaches the page.
+const fmtDate = (iso) => { if (!iso) return ""; const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[3]}/${m[2]}/${m[1]}` : esc(iso); };
 const monthName = (ym) => { const [y, m] = ym.split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString("he-IL", { month: "long", year: "numeric" }); };
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
@@ -440,7 +442,7 @@ function connect() {
   onAuthStateChanged(auth, (user) => {
     stopListening();
     if (inviteUnsub) inviteUnsub(); if (metaUnsub) metaUnsub(); inviteUnsub = metaUnsub = null;
-    me = user; uid = user ? user.uid : null; ownerUid = null; journals = []; members = [];
+    me = user; uid = user ? user.uid : null; ownerUid = null; journals = []; members = []; joined = null;
     showUser(user);
     if (!user) { state.mode = "signedout"; renderJournalPicker(); render(); return; }
     state.mode = "live"; render();
@@ -448,7 +450,8 @@ function connect() {
     const decide = () => { if (metaReady && invitesReady) pickJournal(); };
     // Who this user shares their own journal with.
     metaUnsub = onSnapshot(doc(fs, "users", uid), (s) => {
-      members = (s.exists() && s.data().members) || []; renderMembers(); metaReady = true; decide();
+      members = (s.exists() && s.data().members) || []; joined = (s.exists() && s.data().joined) || null;
+      renderMembers(); metaReady = true; decide();
     }, (e) => { console.error(e); metaReady = true; decide(); });
     // Journals other people shared with this user's email.
     inviteUnsub = onSnapshot(query(collection(fs, "invites"), where("email", "==", (user.email || "").toLowerCase())), (snap) => {
@@ -457,11 +460,13 @@ function connect() {
   });
 }
 
-// One journal per team: someone who was invited (and shares nothing themselves) always works
-// in the inviter's journal; everyone else works in their own.
+// One journal per team: someone who accepted an invite (and shares nothing themselves) always
+// works in the inviter's journal; everyone else works in their own. An invite alone never moves
+// anyone — otherwise a stranger could invite you and collect what you type.
 function pickJournal() {
-  const shared = !members.length && journals.length ? (journals.find((j) => j.ownerUid === ownerUid) || journals[0]) : null;
+  const shared = !members.length && joined ? journals.find((j) => j.ownerUid === joined) : null;
   const target = shared ? shared.ownerUid : uid;
+  renderBanners();
   if (target === ownerUid) { renderJournalPicker(); return; }
   if (ownerUid && ownerUid !== uid && target === uid) toast("הגישה ליומן המשותף הוסרה", 5000);
   openJournal(target);
@@ -551,7 +556,7 @@ function shareSheet() {
     $("s-err").hidden = true;
     $("s-go").disabled = true;
     try {
-      await setDoc(doc(fs, "invites", uid + "_" + email), { email, ownerUid: uid, ownerName: me.displayName || "", ownerEmail: (me.email || "").toLowerCase() });
+      await setDoc(doc(fs, "invites", uid + "_" + email), { email, ownerUid: uid, ownerName: (me.displayName || "").slice(0, 100), ownerEmail: (me.email || "").toLowerCase() });
       await setDoc(doc(fs, "users", uid), { members: arrayUnion(email) }, { merge: true });
       $("s-email").value = ""; toast(`${email} יכול עכשיו לראות ולעדכן את היומן`, 4000);
     } catch (e) { writeError(e); }
@@ -625,6 +630,10 @@ function renderBanners() {
   const parts = [];
   if (state.mode === "offline") parts.push(`<div class="banner"><span>אין חיבור ל-Firebase, לכן השינויים יישמרו רק עד סגירת העמוד.</span></div>`);
   if (state.mode === "noconfig") parts.push(`<div class="banner"><span>התוכנה לא מחוברת ל-Firebase (חסר public/firebase-config.js). השינויים יישמרו רק עד סגירת העמוד.</span></div>`);
+  if (uid && !members.length && !journals.some((j) => j.ownerUid === joined)) {
+    for (const j of journals) parts.push(`<div class="banner"><span><b dir="ltr">${esc(j.ownerEmail)}</b>${j.ownerName ? ` (${esc(j.ownerName)})` : ""} הזמין אותך לעבוד ביומן המשותף שלו. הצטרפו רק אם אתם מכירים את המייל הזה.</span>
+      <span class="actions"><button class="btn small primary" type="button" data-act="join" data-owner="${esc(j.ownerUid)}">הצטרפות ליומן</button></span></div>`);
+  }
   $("banners").innerHTML = parts.join("");
   $("banners").hidden = !parts.length;
 }
@@ -1164,7 +1173,11 @@ $("csv-file").addEventListener("change", () => {
 });
 
 $("btn-export").onclick = () => {
-  const q = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  // A text cell starting with = + - @ would run as a formula in Excel; a leading ' keeps it plain text.
+  const q = (v) => {
+    if (typeof v !== "number") { v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; }
+    v = String(v); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
   const lines = [["שם מטופל", "קוד", "תאריך טיפול", "תאריך תשלום", "עלות", "סכום ששולם", "סטטוס תשלום", "אופן תשלום", "יתרה", "הערות"].join(",")];
   for (const t of sortedTreatments().reverse()) {
     const cl = clientOf(t), c = calc(t);
@@ -1192,6 +1205,11 @@ document.addEventListener("click", (e) => {
   else if (act === "pay") paymentSheet(b.dataset.id);
   else if (act === "del-c") deleteClientSheet(b.dataset.id);
   else if (act === "unshare") unshare(b);
+  else if (act === "join") {
+    b.disabled = true;
+    setDoc(doc(fs, "users", uid), { joined: b.dataset.owner }, { merge: true })
+      .then(() => toast("הצטרפת ליומן המשותף")).catch((e) => { writeError(e); b.disabled = false; });
+  }
   else if (act === "new-c") clientSheet(null);
   else if (act === "import") $("csv-file").click();
   else if (act === "new-t-for") {
