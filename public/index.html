@@ -245,6 +245,8 @@ td.notes { white-space: normal; min-width: 160px; max-width: 280px; color: var(-
       <span>כניסה עם חשבון Google</span>
     </button>
     <div class="login-err" id="login-err" hidden></div>
+    <div class="warnbox" id="blocked" hidden style="text-align:start"><span>החשבון <b dir="ltr" id="blocked-email"></b> לא מורשה להשתמש ביומן. אם צריך גישה, בקשו מבעל היומן לשתף אתכם בכפתור "שיתוף".</span></div>
+    <button class="btn" id="btn-blocked-out" type="button" hidden>כניסה עם חשבון אחר</button>
     <div class="login-note">הנתונים נשמרים בחשבון שלך ונגישים רק לך.</div>
   </div>
 </section>
@@ -355,7 +357,7 @@ const state = {
   clients: new Map(),
   treatments: new Map(),
   loaded: { clients: false, treatments: false },
-  mode: "connecting", // connecting | signedout | live | noconfig | offline
+  mode: "connecting", // connecting | signedout | blocked | live | noconfig | offline
   view: "treatments",
   f: { q: "", status: "", method: "", month: "" },
   cq: "",
@@ -452,11 +454,20 @@ function connect() {
     metaUnsub = onSnapshot(doc(fs, "users", uid), (s) => {
       members = (s.exists() && s.data().members) || []; joined = (s.exists() && s.data().joined) || null;
       renderMembers(); metaReady = true; decide();
-    }, (e) => { console.error(e); metaReady = true; decide(); });
+    }, (e) => {
+      console.error(e);
+      // The rules refuse everyone who is not the journal's owner or one of their partners.
+      if (e && e.code === "permission-denied") { block(user); return; }
+      metaReady = true; decide();
+    });
     // Journals other people shared with this user's email.
     inviteUnsub = onSnapshot(query(collection(fs, "invites"), where("email", "==", (user.email || "").toLowerCase())), (snap) => {
       journals = snap.docs.map((d) => d.data()).filter((j) => j.ownerUid !== uid); invitesReady = true; decide();
-    }, (e) => { console.error(e); toast("לא הצלחתי לבדוק אם שיתפו איתך יומן. רעננו את הדף.", 5000); invitesReady = true; decide(); });
+    }, (e) => {
+      console.error(e);
+      if (e && e.code === "permission-denied") { block(user); return; }
+      toast("לא הצלחתי לבדוק אם שיתפו איתך יומן. רעננו את הדף.", 5000); invitesReady = true; decide();
+    });
   });
 }
 
@@ -596,11 +607,23 @@ async function signIn() {
 }
 $("btn-signin").onclick = signIn;
 $("btn-signout").onclick = () => signOut(auth);
+$("btn-blocked-out").onclick = () => signOut(auth);
+
+function block(user) {
+  if (state.mode === "blocked") return;
+  stopListening();
+  if (inviteUnsub) inviteUnsub(); if (metaUnsub) metaUnsub(); inviteUnsub = metaUnsub = null;
+  ownerUid = null; state.mode = "blocked";
+  $("blocked-email").textContent = (user && user.email) || "";
+  render();
+}
 
 /* ---------- rendering ---------- */
 function render() {
-  const signedOut = state.mode === "signedout";
+  const blocked = state.mode === "blocked", signedOut = state.mode === "signedout" || blocked;
   $("login").hidden = !signedOut;
+  $("btn-signin").hidden = blocked;
+  $("blocked").hidden = $("btn-blocked-out").hidden = !blocked;
   $("app").hidden = signedOut || state.mode === "connecting";
   if (signedOut || state.mode === "connecting") return;
   renderStats(); renderBanners(); renderTabs(); renderDatalist();
