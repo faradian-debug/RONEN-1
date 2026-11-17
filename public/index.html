@@ -857,6 +857,8 @@ async function saveTreatment(p, existing) {
   if (paid > 0 && !payWay) throw { user: "חסר אופן תשלום. בחרו איך שולם: מזומן, ביט, פייבוקס או הפקדה בבנק.", field: p + "-payway" };
   const cost = +$(p + "-cost").value || 0;
   let client = findClientByName(nm);
+  if (client && [...state.treatments.values()].some((t) => t.clientId === client.id && t.date === date && (!existing || t.id !== existing.id)))
+    throw { user: `ל${client.name} כבר נרשם טיפול בתאריך ${fmtDate(date)}. אי אפשר לרשום את אותו מטופל פעמיים באותו תאריך. כדי לשנות את הטיפול הקיים, לחצו "עריכה" בשורה שלו.`, field: p + "-date" };
 
   // Paying more than this treatment costs settles the client's earlier unpaid treatments, oldest first.
   let excess = paid - cost;
