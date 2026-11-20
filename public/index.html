@@ -895,7 +895,19 @@ async function saveTreatment(p, existing) {
 /* entry panel */
 $("q-method").innerHTML = methodOptions("");
 $("q-payway").innerHTML = paywayOptions("");
-$("q-date").value = today();
+// The treatment date starts as today and rolls over to the new day while the page stays open
+// (e.g. a tab left open overnight), unless someone picked a different date by hand.
+let autoDate = today();
+$("q-date").value = autoDate;
+function rollEntryDate() {
+  const t = today();
+  if (t === autoDate) return;
+  if ($("q-date").value === autoDate || !$("q-date").value) $("q-date").value = t;
+  autoDate = t;
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) rollEntryDate(); });
+addEventListener("focus", rollEntryDate);
+setInterval(rollEntryDate, 60 * 1000);
 const entryHint = wireTreatmentFields("q");
 $("entry").addEventListener("submit", async (e) => {
   e.preventDefault();
